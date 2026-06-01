@@ -1,0 +1,32 @@
+# Vm base info configs
+#
+[base]
+id = 1
+name = "arceos-qemu"
+vm_type = 1
+cpu_num = 1
+phys_cpu_ids = [0]
+
+#
+# Vm kernel configs
+#
+[kernel]
+entry_point = 0x8020_0000
+image_location = "memory"
+kernel_path = "guest/qemu-riscv64"
+kernel_load_addr = 0x8020_0000
+dtb_load_addr = 0x8220_0000
+
+memory_regions = [
+  [0x8000_0000, 0x400_0000, 0x7, 0], # System RAM 64M MAP_ALLOC
+]
+
+#
+# Device specifications
+#
+[devices]
+interrupt_mode = "passthrough"
+passthrough_devices = []
+passthrough_addresses = []
+excluded_devices = []
+emu_devices = []

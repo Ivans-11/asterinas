@@ -1,0 +1,20 @@
+arch = "riscv64"
+guest = "linux"
+scheme = "axvisor-riscv64"
+image = "qemu_riscv64_linux"
+timeout_secs = 180
+success_regex = ["(?m)^guest test pass!\\s*$"]
+fail_regex = [
+  "(?i)\\bpanic(?:ked)?\\b",
+  "(?i)kernel panic",
+  "(?i)login incorrect",
+  "(?i)permission denied",
+]
+shell_prompt = "~ # "
+shell_init_cmd = "pwd && echo 'guest test pass!'"
+extra_qemu_args = [
+  "-drive",
+  "if=none,format=raw,id=axvisor_guest_rootfs,file={guest_dir}/rootfs.img",
+  "-device",
+  "virtio-blk-device,drive=axvisor_guest_rootfs",
+]

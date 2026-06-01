@@ -1,0 +1,50 @@
+# Vm base info configs
+#
+[base]
+id = 1
+name = "nimbos"
+vm_type = 1
+cpu_num = 1
+phys_cpu_sets = [1]
+
+#
+# Vm kernel configs
+#
+[kernel]
+entry_point = 0x8000
+image_location = "memory"
+kernel_path = "guest/qemu-x86_64"
+kernel_load_addr = 0x20_0000
+enable_bios = true
+boot_protocol = "multiboot"
+bios_path = "guest/axvm-bios.bin"
+bios_load_addr = 0x8000
+
+memory_regions = [
+  [0x0000_0000, 0x100_0000, 0x7, 0], # Low RAM 16M
+]
+
+#
+# Device specifications
+#
+[devices]
+interrupt_mode = "passthrough"
+
+emu_devices = []
+
+passthrough_devices = [
+  [
+    "IO APIC",
+    0xfec0_0000,
+    0xfec0_0000,
+    0x1000,
+    0x1,
+  ],
+  [
+    "HPET",
+    0xfed0_0000,
+    0xfed0_0000,
+    0x1000,
+    0x1,
+  ],
+]

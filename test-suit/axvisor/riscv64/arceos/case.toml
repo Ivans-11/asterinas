@@ -1,0 +1,11 @@
+arch = "riscv64"
+guest = "arceos"
+scheme = "axvisor-riscv64"
+image = "qemu_riscv64_arceos"
+timeout_secs = 90
+success_regex = ["(?m)^Hello, world!\\s*$"]
+fail_regex = [
+  "(?i)\\bpanic(?:ked)?\\b",
+  "(?i)kernel panic",
+  "(?i)permission denied",
+]

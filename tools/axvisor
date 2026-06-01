@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ASTERINAS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export CARGO_TARGET_DIR="${ASTERINAS_ROOT}/target/tools/axvisorctl"
+
+exec cargo run --manifest-path "${ASTERINAS_ROOT}/tools/axvisorctl/Cargo.toml" -- "$@"

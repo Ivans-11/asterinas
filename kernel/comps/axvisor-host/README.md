@@ -2,49 +2,54 @@
 
 This component hosts `axvisor_core` on top of the Asterinas kernel runtime.
 
-The unified helper script defaults to `x86_64`. For host-only bring-up on the
+The `tools/axvisor` helper is the single entrypoint for Asterinas-hosted
+Axvisor workflows. It defaults to `x86_64`. For host-only bring-up on the
 default architecture, run:
 
 ```bash
 cd /home/vans/hyper/asterinas
-tools/axvisor_run.sh run
+tools/axvisor run
 ```
 
 For the current x86_64 guest boot flow, run:
 
 ```bash
 cd /home/vans/hyper/asterinas
-tools/axvisor_run.sh run --guest nimbos
+tools/axvisor run --guest nimbos
 ```
 
-For the current riscv64 Linux guest boot flow, run:
+For the current riscv64 guest flows, run:
 
 ```bash
 cd /home/vans/hyper/asterinas
-tools/axvisor_run.sh run --target-arch riscv64 --guest linux-riscv64
+tools/axvisor run --arch riscv64 --guest linux
+tools/axvisor run --arch riscv64 --guest arceos
 ```
 
-The unified helper script:
+For bounded guest verification, use `test`:
 
-- prepares guest assets through `tgoskits/os/axvisor/scripts/setup_qemu.sh`
+```bash
+cd /home/vans/hyper/asterinas
+tools/axvisor test --guest nimbos
+tools/axvisor test --arch riscv64 --guest linux
+tools/axvisor test --arch riscv64 --guest arceos
+```
+
+The new tooling path:
+
+- stages static case assets from `test-suit/axvisor/<arch>/<guest>/`
+- downloads and caches guest images under `target/axvisor/images/`
+- stages per-run VM configs under `target/axvisor/cases/`
 - injects `AXVISOR_VM_CONFIGS` for `axvisor_core` build-time embedding
 - points `VDSO_LIBRARY_DIR` at the local vDSO artifacts
-- appends the guest rootfs disk when the selected guest expects host-side disk
-  injection
-- forces `-smp 2` for the current x86_64 guest path so Axvisor can pin the
-  guest vCPU to host CPU 1
-
-For other host architectures, add `--target-arch` explicitly:
-
-```bash
-cd /home/vans/hyper/asterinas
-tools/axvisor_run.sh run --target-arch riscv64
-```
+- uses per-case static `vm.toml` instead of patching generated configs at runtime
+- uses `test` to watch QEMU output, inject guest-side shell commands when needed,
+  and decide pass/fail from case-owned regexes
 
 Current validated milestone:
 
-- `tools/axvisor_run.sh run --guest nimbos` on x86_64 KVM reaches the
-  NimbOS user shell on top of the Asterinas-hosted Axvisor path.
-- `tools/axvisor_run.sh run --target-arch riscv64 --guest linux-riscv64`
-  reaches the guest `/bin/sh` prompt with passthrough `ttyS0` console and
-  `virtio-blk` rootfs on top of the Asterinas-hosted Axvisor path.
+- `tools/axvisor run --guest nimbos` boots the current x86_64 NimbOS guest path.
+- `tools/axvisor run --arch riscv64 --guest linux` reaches the guest `/bin/sh`
+  prompt with passthrough `ttyS0` console and `virtio-blk` rootfs.
+- `tools/axvisor run --arch riscv64 --guest arceos` boots the current RISC-V
+  ArceOS guest image path.
