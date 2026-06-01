@@ -59,6 +59,9 @@ struct FsIfImpl;
 
 const STDIN_HANDLE: usize = 0;
 const STDOUT_HANDLE: usize = 1;
+const NANOS_PER_SEC: u128 = 1_000_000_000;
+#[cfg(target_arch = "riscv64")]
+const RISCV_S_EXT_VECTOR: usize = (1usize << (usize::BITS - 1)) + 9;
 
 /// Runtime hook used to spawn proper Asterinas kernel threads for Axvisor.
 pub trait KernelTaskRuntime: Sync {
@@ -223,6 +226,46 @@ fn read_console_bytes(buf: &mut [u8]) -> usize {
     })
 }
 
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "riscv64",
+    target_arch = "loongarch64"
+))]
+fn host_tick_frequency() -> u64 {
+    ostd::arch::tsc_freq()
+}
+
+#[cfg(target_arch = "aarch64")]
+fn host_tick_frequency() -> u64 {
+    1_000_000_000
+}
+
+pub(crate) fn host_current_ticks() -> u64 {
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64"
+    ))]
+    {
+        return ostd::arch::read_tsc();
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        aster_time::read_monotonic_time().as_nanos() as u64
+    }
+}
+
+pub(crate) fn host_ticks_to_nanos(ticks: u64) -> u64 {
+    let freq = host_tick_frequency() as u128;
+    (((ticks as u128) * NANOS_PER_SEC) / freq).min(u64::MAX as u128) as u64
+}
+
+pub(crate) fn host_nanos_to_ticks(nanos: u64) -> u64 {
+    let freq = host_tick_frequency() as u128;
+    (((nanos as u128) * freq) / NANOS_PER_SEC).min(u64::MAX as u128) as u64
+}
+
 fn current_vcpu_context() -> VCpuTaskContext {
     let task = Task::current().expect("current VM/vCPU context requested outside of a task");
     *task
@@ -333,7 +376,14 @@ impl host::HostIf for HostIfImpl {
 
     fn spawn_cpu_init_task(cpu_id: usize, task: Box<dyn FnOnce() + Send + 'static>) {
         let cpu = CpuId::try_from(cpu_id).expect("invalid CPU id for Axvisor initialization");
-        let _ = spawn_kernel_task(task, CpuSet::from(cpu), None);
+        let _ = spawn_kernel_task(
+            Box::new(move || {
+                arch::init_percpu();
+                task();
+            }),
+            CpuSet::from(cpu),
+            None,
+        );
     }
 
     fn yield_now() {
@@ -365,15 +415,15 @@ impl console::ConsoleIf for ConsoleIfImpl {
 #[api_impl]
 impl time::TimeIf for TimeIfImpl {
     fn current_ticks() -> time::Ticks {
-        aster_time::read_monotonic_time().as_nanos() as u64
+        host_current_ticks()
     }
 
     fn ticks_to_nanos(ticks: time::Ticks) -> time::Nanos {
-        ticks
+        host_ticks_to_nanos(ticks)
     }
 
     fn nanos_to_ticks(nanos: time::Nanos) -> time::Ticks {
-        nanos
+        host_nanos_to_ticks(nanos)
     }
 
     fn register_timer(
@@ -388,8 +438,9 @@ impl time::TimeIf for TimeIfImpl {
     }
 
     fn busy_wait(duration: time::TimeValue) {
-        let start = aster_time::read_monotonic_time();
-        while aster_time::read_monotonic_time().saturating_sub(start) < duration {
+        let start = host_current_ticks();
+        let wait_ticks = host_nanos_to_ticks(duration.as_nanos() as u64);
+        while host_current_ticks().wrapping_sub(start) < wait_ticks {
             core::hint::spin_loop();
         }
     }
@@ -516,6 +567,13 @@ impl task::TaskIf for TaskIfImpl {
 #[api_impl]
 impl irq::IrqIf for IrqIfImpl {
     fn handle_irq(vector: usize) {
+        #[cfg(target_arch = "riscv64")]
+        if vector == RISCV_S_EXT_VECTOR {
+            ostd::arch::irq::for_each_pending_external_interrupt(|irq_id| {
+                axvisor_core::arch::riscv64::inject_interrupt(irq_id);
+            });
+        }
+
         if let Some(handler) = IRQ_HANDLERS.lock().get(&vector).copied() {
             handler(vector);
         }

@@ -25,6 +25,8 @@ static EFI_SYSTEM_TABLE: Once<&'static EfiSystemTable> = Once::new();
 
 /// The Flattened Device Tree of the platform.
 pub static DEVICE_TREE: Once<Fdt> = Once::new();
+/// The physical address of the host Flattened Device Tree blob.
+pub static DEVICE_TREE_PADDR: Once<usize> = Once::new();
 
 fn parse_bootloader_name() -> &'static str {
     "Unknown"
@@ -117,8 +119,9 @@ unsafe extern "C" fn loongarch_boot(
     let systab = unsafe { &*(systab_ptr) };
     EFI_SYSTEM_TABLE.call_once(|| systab);
 
-    let device_tree_ptr =
-        paddr_to_vaddr(systab.device_tree().expect("device tree not found")) as *const u8;
+    let device_tree_paddr = systab.device_tree().expect("device tree not found");
+    DEVICE_TREE_PADDR.call_once(|| device_tree_paddr);
+    let device_tree_ptr = paddr_to_vaddr(device_tree_paddr) as *const u8;
     let fdt = unsafe { Fdt::from_ptr(device_tree_ptr).unwrap() };
     DEVICE_TREE.call_once(|| fdt);
 

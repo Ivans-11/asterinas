@@ -206,3 +206,9 @@ pub(super) struct InterruptSourceOnChip {
     /// Interrupt source number on the interrupt controller.
     interrupt: u32,
 }
+
+impl InterruptSourceOnChip {
+    pub(super) fn interrupt(&self) -> u32 {
+        self.interrupt
+    }
+}

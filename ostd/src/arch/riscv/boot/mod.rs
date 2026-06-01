@@ -22,6 +22,8 @@ global_asm!(include_str!("bsp_boot.S"));
 
 /// The Flattened Device Tree of the platform.
 pub static DEVICE_TREE: Once<Fdt> = Once::new();
+/// The physical address of the host Flattened Device Tree blob.
+pub static DEVICE_TREE_PADDR: Once<usize> = Once::new();
 
 fn parse_bootloader_name() -> &'static str {
     "Unknown"
@@ -124,6 +126,7 @@ unsafe extern "C" fn riscv_boot(hart_id: usize, device_tree_paddr: usize) -> ! {
     // have not been booted yet, so there are no data races.
     unsafe { BOOTSTRAP_HART_ID = hart_id as u32 };
 
+    DEVICE_TREE_PADDR.call_once(|| device_tree_paddr);
     let device_tree_ptr = paddr_to_vaddr(device_tree_paddr) as *const u8;
     let fdt = unsafe { Fdt::from_ptr(device_tree_ptr).unwrap() };
     DEVICE_TREE.call_once(|| fdt);

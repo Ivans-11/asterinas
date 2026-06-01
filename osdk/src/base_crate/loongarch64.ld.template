@@ -90,8 +90,16 @@ SECTIONS
     .cpu_local              : AT(ADDR(.cpu_local) - KERNEL_VMA_OFFSET) {
         __cpu_local_start = .;
         KEEP(*(SORT(.cpu_local)))
-        __cpu_local_end = .;
     }
+
+    . = ALIGN(64);
+    _percpu_load_start = __cpu_local_start;
+    .percpu                 : AT(ADDR(.percpu) - KERNEL_VMA_OFFSET) {
+        KEEP(*(.percpu))
+        KEEP(*(.percpu.*))
+    }
+    _percpu_load_end = .;
+    __cpu_local_end = .;
 
     .bss                    : AT(ADDR(.bss) - KERNEL_VMA_OFFSET) {
         __bss = .;

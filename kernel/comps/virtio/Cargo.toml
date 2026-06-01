@@ -34,6 +34,7 @@ zerocopy.workspace = true
 tdx-guest = { version = "0.2.4", optional = true }
 
 [features]
+axvisor = []
 all = ["cvm_guest"]
 cvm_guest = ["dep:tdx-guest", "ostd/cvm_guest"]
 

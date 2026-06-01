@@ -13,7 +13,6 @@ pub(crate) use ops::{
     disable_local, disable_local_and_halt, enable_local, enable_local_and_halt, is_local_enabled,
 };
 pub(crate) use remapping::IrqRemapping;
-
 use crate::arch::irq::chip::InterruptSourceOnChip;
 
 pub(crate) const IRQ_NUM_MIN: u8 = 0;
@@ -36,6 +35,23 @@ pub(super) enum InterruptSource {
     #[expect(private_interfaces)]
     External(InterruptSourceOnChip),
     Software,
+}
+
+/// Claims each currently pending supervisor external interrupt and passes its
+/// hardware IRQ number to `handler`.
+///
+/// This helper is intended for hypervisor VM-exit handling paths that want to
+/// drain host pending external IRQs in task context.
+pub fn for_each_pending_external_interrupt<F: FnMut(usize)>(mut handler: F) {
+    let _guard = crate::irq::disable_local();
+    let hart_id = crate::arch::boot::smp::get_current_hart_id();
+
+    while let Some(hw_irq_line) = IRQ_CHIP.get().unwrap().claim_interrupt(hart_id) {
+        let InterruptSource::External(source) = hw_irq_line.source else {
+            continue;
+        };
+        handler(source.interrupt() as usize);
+    }
 }
 
 impl HwIrqLine {

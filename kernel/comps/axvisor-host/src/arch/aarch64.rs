@@ -8,6 +8,8 @@ use axvisor_api::{
 
 pub(crate) fn prepare_virtualization() {}
 
+pub(crate) fn init_percpu() {}
+
 pub(crate) fn set_oneshot_timer(_deadline: time::TimeValue) {
     // Asterinas does not yet provide an aarch64 Axvisor host runtime.
 }

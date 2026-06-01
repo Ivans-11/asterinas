@@ -17,7 +17,7 @@ spin.workspace = true
 axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core", features = ["vmx"] }
 
 [target.'cfg(target_arch = "riscv64")'.dependencies]
-axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core" }
+axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core", features = ["sstc"] }
 
 [target.'cfg(target_arch = "loongarch64")'.dependencies]
 axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core" }

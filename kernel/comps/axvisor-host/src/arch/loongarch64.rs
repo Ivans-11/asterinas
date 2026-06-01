@@ -5,18 +5,18 @@ use axvisor_api::{
     memory::{PhysAddr, VirtAddr},
     time, vmm,
 };
-use ostd::arch::boot::DEVICE_TREE;
+use ostd::arch::boot::DEVICE_TREE_PADDR;
 
 pub(crate) fn prepare_virtualization() {}
+
+pub(crate) fn init_percpu() {}
 
 pub(crate) fn set_oneshot_timer(_deadline: time::TimeValue) {
     // Asterinas does not yet expose host timer reprogramming to components.
 }
 
 pub(crate) fn get_host_fdt_ptr() -> Option<PhysAddr> {
-    DEVICE_TREE
-        .get()
-        .map(|device_tree| super::linear_mapping_slice_to_phys(device_tree.as_slice()))
+    DEVICE_TREE_PADDR.get().copied().map(PhysAddr::from_usize)
 }
 
 pub(crate) fn inject_virtual_interrupt(vector: vmm::InterruptVector) {

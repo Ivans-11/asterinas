@@ -31,6 +31,8 @@ Supported target architectures:
   loongarch64
 
 Supported guests:
+  arceos-riscv64
+  linux-riscv64
   nimbos
   nimbos-uefi
   linux-x86_64-uefi
@@ -88,6 +90,12 @@ scheme_for_arch() {
 
 generated_vmconfig_path() {
   case "$1" in
+    arceos-riscv64)
+      echo "${TGOSKITS_ROOT}/os/axvisor/tmp/vmconfigs/arceos-riscv64-qemu-smp1.generated.toml"
+      ;;
+    linux-riscv64)
+      echo "${TGOSKITS_ROOT}/os/axvisor/tmp/vmconfigs/linux-riscv64-qemu-smp1.generated.toml"
+      ;;
     nimbos)
       echo "${TGOSKITS_ROOT}/os/axvisor/tmp/vmconfigs/nimbos-x86_64-qemu-smp1.generated.toml"
       ;;
@@ -96,6 +104,36 @@ generated_vmconfig_path() {
       ;;
     linux-x86_64-uefi)
       echo "${TGOSKITS_ROOT}/os/axvisor/tmp/vmconfigs/linux-x86_64-qemu-uefi-smp1.generated.toml"
+      ;;
+    *)
+      echo "unsupported guest: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+guest_target_arch() {
+  case "$1" in
+    arceos-riscv64|linux-riscv64)
+      echo "riscv64"
+      ;;
+    nimbos|nimbos-uefi|linux-x86_64-uefi)
+      echo "x86_64"
+      ;;
+    *)
+      echo "unsupported guest: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+guest_requires_host_rootfs_injection() {
+  case "$1" in
+    arceos-riscv64)
+      return 1
+      ;;
+    linux-riscv64|nimbos|nimbos-uefi|linux-x86_64-uefi)
+      return 0
       ;;
     *)
       echo "unsupported guest: $1" >&2
@@ -203,6 +241,83 @@ prepare_guest_assets() {
   (cd "${TGOSKITS_ROOT}/os/axvisor" && "${SETUP_QEMU_SCRIPT}" "${GUEST}")
 }
 
+rewrite_vmconfig_array_block() {
+  local vmconfig_path="$1"
+  local block_name="$2"
+  local replacement="$3"
+  local tmp_path="${vmconfig_path}.tmp"
+
+  awk -v block_name="${block_name}" -v replacement="${replacement}" '
+    BEGIN {
+      in_block = 0;
+      replaced = 0;
+    }
+    {
+      if (!in_block && $0 ~ ("^" block_name " *= *\\[$")) {
+        print replacement;
+        in_block = 1;
+        replaced = 1;
+        next;
+      }
+
+      if (in_block) {
+        if ($0 ~ /^]$/) {
+          print "]";
+          in_block = 0;
+        }
+        next;
+      }
+
+      print $0;
+    }
+    END {
+      if (!replaced) {
+        exit 1;
+      }
+      if (in_block) {
+        exit 1;
+      }
+    }
+  ' "${vmconfig_path}" > "${tmp_path}" || {
+    rm -f "${tmp_path}"
+    echo "failed to rewrite ${block_name} in ${vmconfig_path}" >&2
+    exit 1
+  }
+
+  mv "${tmp_path}" "${vmconfig_path}"
+}
+
+customize_linux_riscv64_vmconfig_for_asterinas() {
+  local vmconfig_path passthrough_devices passthrough_addresses
+
+  vmconfig_path="$(guest_vmconfig_path)"
+  if [ ! -f "${vmconfig_path}" ]; then
+    echo "missing generated VM config for Asterinas customization: ${vmconfig_path}" >&2
+    exit 1
+  fi
+
+  sed -i 's|^cmdline *=.*|cmdline = "earlycon=sbi console=ttyS0,115200 init=/bin/sh root=/dev/vda rw"|' \
+    "${vmconfig_path}"
+
+  passthrough_devices='passthrough_devices = [
+    ["/soc/serial@10000000"],
+    ["/soc/virtio_mmio@10008000"],'
+  rewrite_vmconfig_array_block "${vmconfig_path}" "passthrough_devices" "${passthrough_devices}"
+
+  passthrough_addresses='passthrough_addresses = [
+    [0x1000_0000, 0x100],      # ns16550a guest console
+    [0x1000_8000, 0x1000],     # virtio-mmio guest rootfs'
+  rewrite_vmconfig_array_block "${vmconfig_path}" "passthrough_addresses" "${passthrough_addresses}"
+}
+
+customize_guest_assets_for_asterinas() {
+  case "${GUEST}" in
+    linux-riscv64)
+      customize_linux_riscv64_vmconfig_for_asterinas
+      ;;
+  esac
+}
+
 guest_vmconfig_path() {
   generated_vmconfig_path "${GUEST}"
 }
@@ -214,8 +329,24 @@ guest_rootfs_path() {
 guest_qemu_args() {
   local rootfs qemu_args
 
+  if ! guest_requires_host_rootfs_injection "${GUEST}"; then
+    echo "${AXVISOR_EXTRA_QEMU_ARGS:-}"
+    return
+  fi
+
   rootfs="$(guest_rootfs_path)"
-  qemu_args="-smp 2 -device virtio-blk-pci,drive=disk0 -drive id=disk0,if=none,format=raw,file=${rootfs}"
+  case "${GUEST}" in
+    linux-riscv64)
+      qemu_args="-drive if=none,format=raw,id=axvisor_guest_rootfs,file=${rootfs} -device virtio-blk-device,drive=axvisor_guest_rootfs"
+      ;;
+    nimbos|nimbos-uefi|linux-x86_64-uefi)
+      qemu_args="-smp 2 -device virtio-blk-pci,drive=disk0 -drive id=disk0,if=none,format=raw,file=${rootfs}"
+      ;;
+    *)
+      echo "unsupported guest: ${GUEST}" >&2
+      exit 1
+      ;;
+  esac
 
   if [ -n "${AXVISOR_EXTRA_QEMU_ARGS:-}" ]; then
     qemu_args="${qemu_args} ${AXVISOR_EXTRA_QEMU_ARGS}"
@@ -245,16 +376,19 @@ run_axvisor() {
 
   if [ -n "${GUEST}" ]; then
     vmconfig="$(guest_vmconfig_path)"
-    rootfs="$(guest_rootfs_path)"
     qemu_args="$(guest_qemu_args)"
 
     if [ ! -f "${vmconfig}" ]; then
       echo "missing generated VM config: ${vmconfig}" >&2
       exit 1
     fi
-    if [ ! -f "${rootfs}" ]; then
-      echo "missing guest rootfs image: ${rootfs}" >&2
-      exit 1
+
+    if guest_requires_host_rootfs_injection "${GUEST}"; then
+      rootfs="$(guest_rootfs_path)"
+      if [ ! -f "${rootfs}" ]; then
+        echo "missing guest rootfs image: ${rootfs}" >&2
+        exit 1
+      fi
     fi
   fi
 
@@ -338,17 +472,21 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ -n "${GUEST}" ] && [ -n "${TARGET_ARCH}" ] && [ "${TARGET_ARCH}" != "x86_64" ]; then
-  echo "guest mode currently supports only --target-arch x86_64; got ${TARGET_ARCH}" >&2
-  exit 1
-fi
-
 if [ -z "${TARGET_ARCH}" ]; then
   TARGET_ARCH="$(default_target_arch)"
 fi
 
 if [ -n "${GUEST}" ]; then
+  REQUIRED_GUEST_ARCH="$(guest_target_arch "${GUEST}")"
+  if [ "${TARGET_ARCH}" != "${REQUIRED_GUEST_ARCH}" ]; then
+    echo "guest ${GUEST} requires --target-arch ${REQUIRED_GUEST_ARCH}; got ${TARGET_ARCH}" >&2
+    exit 1
+  fi
+fi
+
+if [ -n "${GUEST}" ]; then
   prepare_guest_assets
+  customize_guest_assets_for_asterinas
 fi
 
 prepare_initramfs

@@ -32,23 +32,16 @@ EOF
     ;;
   axvisor-riscv64)
     cat <<EOF
--cpu rv64,h=true,svpbmt=true,zkr=true \
+-cpu rv64,h=true,svpbmt=true,sstc=true \
 -machine virt \
 -m ${MEMORY} \
 -smp ${CPUS} \
 --no-reboot \
 -nographic \
 -display none \
+-serial chardev:mux \
 -monitor chardev:mux \
--chardev stdio,id=mux,mux=on,signal=off,logfile=qemu.log \
--drive if=none,format=raw,id=x0,file=./test/initramfs/build/ext2.img \
--drive if=none,format=raw,id=x1,file=./test/initramfs/build/exfat.img \
--device virtio-blk-device,drive=x1 \
--device virtio-blk-device,drive=x0 \
--device virtio-keyboard-device \
--device virtio-serial-device \
--device virtconsole,chardev=mux \
--serial file:qemu-serial.log
+-chardev stdio,id=mux,mux=on,signal=off,logfile=qemu.log
 EOF
     ;;
   axvisor-loongarch64)

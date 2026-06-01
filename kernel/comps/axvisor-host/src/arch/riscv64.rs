@@ -5,18 +5,38 @@ use axvisor_api::{
     memory::{PhysAddr, VirtAddr},
     time, vmm,
 };
-use ostd::arch::boot::DEVICE_TREE;
+use ostd::{arch::boot::DEVICE_TREE_PADDR, timer};
+
+const NO_DEADLINE_TICKS: u64 = u64::MAX;
+
+#[ax_percpu::def_percpu]
+static TIMER_DEADLINE_TICKS: u64 = NO_DEADLINE_TICKS;
 
 pub(crate) fn prepare_virtualization() {}
 
-pub(crate) fn set_oneshot_timer(_deadline: time::TimeValue) {
-    // Asterinas does not yet expose SBI/Sstc timer reprogramming to components.
+pub(crate) fn init_percpu() {
+    timer::register_callback_on_cpu(|| {
+        let deadline = TIMER_DEADLINE_TICKS.read_current();
+        if deadline == NO_DEADLINE_TICKS {
+            return;
+        }
+
+        let now_ticks = crate::host_current_ticks();
+        if now_ticks < deadline {
+            return;
+        }
+
+        TIMER_DEADLINE_TICKS.write_current(NO_DEADLINE_TICKS);
+        axvisor_core::vmm::timer::check_events();
+    });
+}
+
+pub(crate) fn set_oneshot_timer(deadline: time::TimeValue) {
+    TIMER_DEADLINE_TICKS.write_current(crate::host_nanos_to_ticks(deadline.as_nanos() as u64));
 }
 
 pub(crate) fn get_host_fdt_ptr() -> Option<PhysAddr> {
-    DEVICE_TREE
-        .get()
-        .map(|device_tree| super::linear_mapping_slice_to_phys(device_tree.as_slice()))
+    DEVICE_TREE_PADDR.get().copied().map(PhysAddr::from_usize)
 }
 
 pub(crate) fn inject_virtual_interrupt(vector: vmm::InterruptVector) {
