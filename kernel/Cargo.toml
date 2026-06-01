@@ -7,6 +7,7 @@ edition.workspace = true
 
 [dependencies]
 align_ext.workspace = true
+aster-axvisor-host = { workspace = true, optional = true }
 aster-bigtcp.workspace = true
 aster-block.workspace = true
 aster-cmdline.workspace = true
@@ -82,6 +83,7 @@ loongArch64 = "0.2.5"
 
 [features]
 default = ["cvm_guest"]
+axvisor = ["dep:aster-axvisor-host"]
 coverage = ["ostd/coverage"]
 cvm_guest = ["dep:tdx-guest", "ostd/cvm_guest", "aster-virtio/cvm_guest"]
 # By default we use the Sv48 address translation mode.

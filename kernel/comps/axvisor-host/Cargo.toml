@@ -1,0 +1,17 @@
+[package]
+name = "aster-axvisor-host"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+aster-console.workspace = true
+aster-logger.workspace = true
+aster-time.workspace = true
+ax-percpu = { path = "../../../../tgoskits/components/percpu/percpu", features = ["sp-naive"] }
+ax-errno = { path = "../../../../tgoskits/components/axerrno" }
+axvisor_api = { path = "../../../../tgoskits/virtualization/axvisor_api" }
+axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core", features = ["vmx"] }
+ostd.workspace = true
+
+[lints]
+workspace = true

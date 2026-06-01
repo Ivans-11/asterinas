@@ -135,6 +135,9 @@ fn first_kthread() {
     let fs_resolver = init_mnt_ns.new_path_resolver();
     init_in_first_kthread(&fs_resolver);
 
+    #[cfg(feature = "axvisor")]
+    aster_axvisor_host::run();
+
     print_banner();
 
     INIT_PROCESS.call_once(|| {

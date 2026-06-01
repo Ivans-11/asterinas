@@ -35,13 +35,12 @@ pub use self::{
         Fallible, FallibleVmRead, FallibleVmWrite, Infallible, PodAtomic, PodOnce, VmIo, VmIoFill,
         VmIoOnce, VmReader, VmWriter,
     },
-    kspace::{KERNEL_VADDR_RANGE, MAX_USERSPACE_VADDR},
+    kspace::{KERNEL_VADDR_RANGE, MAX_USERSPACE_VADDR, paddr_to_vaddr},
     mem_obj::{HasDaddr, HasPaddr, HasPaddrRange, HasSize, Split},
     page_prop::{CachePolicy, PageFlags, PageProperty},
     vm_space::VmSpace,
 };
 pub(crate) use self::{
-    kspace::paddr_to_vaddr,
     page_prop::{PageTableFlags, PrivilegedPageFlags},
     page_table::PageTable,
 };

@@ -35,6 +35,26 @@ boot.method = "qemu-direct"
 build.strip_elf = true
 qemu.args = "$(./tools/qemu_args.sh microvm)"
 
+[scheme."axvisor-probe"]
+supported_archs = ["x86_64"]
+boot.method = "qemu-direct"
+build.strip_elf = false
+
+qemu.args = """\
+    -machine q35,kernel-irqchip=split \
+    -enable-kvm \
+    -cpu host \
+    -smp 1 \
+    -m 8G \
+    --no-reboot \
+    -nographic \
+    -display none \
+    -serial chardev:mux \
+    -monitor chardev:mux \
+    -chardev stdio,id=mux,mux=on,signal=off,logfile=qemu.log \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04
+"""
+
 [scheme."iommu"]
 supported_archs = ["x86_64"]
 qemu.args = "$(./tools/qemu_args.sh iommu)"

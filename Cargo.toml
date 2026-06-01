@@ -28,6 +28,7 @@ members = [
     "ostd/libs/padding-struct",
     "kernel",
     "kernel/comps/block",
+    "kernel/comps/axvisor-host",
     "kernel/comps/cmdline",
     "kernel/comps/console",
     "kernel/comps/framebuffer",
@@ -75,6 +76,7 @@ default-members = [
     "ostd",
     "kernel",
     "kernel/comps/block",
+    "kernel/comps/axvisor-host",
     "kernel/comps/cmdline",
     "kernel/comps/console",
     "kernel/comps/framebuffer",
@@ -147,6 +149,7 @@ ostd-test = { version = "0.18.0", path = "ostd/libs/ostd-test" }
 
 # Crates under kernel/comps
 aster-block = { path = "kernel/comps/block" }
+aster-axvisor-host = { path = "kernel/comps/axvisor-host" }
 aster-cmdline = { path = "kernel/comps/cmdline" }
 aster-console = { path = "kernel/comps/console" }
 aster-framebuffer = { path = "kernel/comps/framebuffer" }
