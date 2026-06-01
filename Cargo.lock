@@ -166,6 +166,7 @@ dependencies = [
  "axvisor_api",
  "axvisor_core",
  "ostd",
+ "spin 0.9.8",
 ]
 
 [[package]]

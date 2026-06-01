@@ -277,6 +277,29 @@ pub(crate) fn get_ap(cpu_id: CpuId) -> Paddr {
     paddr
 }
 
+/// Returns the base virtual address of the static CPU-local storage for the specified CPU.
+///
+/// For the BSP this is the linked `.cpu_local` area in the kernel image. For APs this is the
+/// dynamically allocated copy created during BSP boot.
+///
+/// # Panics
+///
+/// This method will panic if the AP's CPU-local storage has not been allocated yet.
+pub fn storage_base(cpu_id: CpuId) -> usize {
+    if cpu_id == CpuId::bsp() {
+        __cpu_local_start as *const () as usize
+    } else {
+        paddr_to_vaddr(get_ap(cpu_id))
+    }
+}
+
+#[doc(hidden)]
+#[unsafe(no_mangle)]
+extern "C" fn _percpu_base_ptr(cpu_idx: usize) -> *mut u8 {
+    let cpu_id = CpuId::try_from(cpu_idx).expect("requested an invalid CPU-local storage index");
+    storage_base(cpu_id) as *mut u8
+}
+
 mod is_used {
     //! This module tracks whether any statically-allocated CPU-local
     //! variables are used.

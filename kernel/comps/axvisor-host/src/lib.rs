@@ -17,6 +17,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{
+    any::Any,
     str,
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
@@ -30,16 +31,17 @@ use axvisor_api::{
     platform, process, task, time, vmm,
 };
 use ostd::{
-    cpu::CpuId,
+    cpu::{CpuId, CpuSet, all_cpus},
     mm::{
         Frame, FrameAllocOptions, HasPaddr, HasSize, Infallible, PAGE_SIZE, Segment, Split,
         VmReader, VmWriter, paddr_to_vaddr,
     },
     power::ExitCode,
     sync::{LocalIrqDisabled, SpinLock, WaitQueue, Waiter},
-    task::{Task, TaskOptions},
+    task::Task,
     util::id_set::Id,
 };
+use spin::Once;
 
 struct HostIfImpl;
 struct ConsoleIfImpl;
@@ -55,6 +57,19 @@ struct FsIfImpl;
 
 const STDIN_HANDLE: usize = 0;
 const STDOUT_HANDLE: usize = 1;
+
+/// Runtime hook used to spawn proper Asterinas kernel threads for Axvisor.
+pub trait KernelTaskRuntime: Sync {
+    /// Spawns a kernel thread with the requested CPU affinity and optional task-local data.
+    fn spawn_task(
+        &self,
+        entry: Box<dyn FnOnce() + Send + 'static>,
+        cpu_affinity: CpuSet,
+        local_data: Option<Box<dyn Any + Send>>,
+    ) -> Arc<Task>;
+}
+
+static KERNEL_TASK_RUNTIME: Once<&'static dyn KernelTaskRuntime> = Once::new();
 
 static WAIT_QUEUE_IDS: AtomicUsize = AtomicUsize::new(1);
 static WAIT_QUEUES: SpinLock<BTreeMap<usize, Arc<WaitQueue>>, LocalIrqDisabled> =
@@ -135,6 +150,16 @@ struct ConsoleInput {
     registered: AtomicBool,
 }
 
+/// Installs the Asterinas kernel-thread runtime used by Axvisor host integration.
+pub fn install_kernel_task_runtime(runtime: &'static dyn KernelTaskRuntime) {
+    let mut is_new = false;
+    KERNEL_TASK_RUNTIME.call_once(|| {
+        is_new = true;
+        runtime
+    });
+    assert!(is_new, "Axvisor kernel task runtime has already been installed");
+}
+
 impl ConsoleInput {
     const fn new() -> Self {
         Self {
@@ -196,9 +221,38 @@ fn read_console_bytes(buf: &mut [u8]) -> usize {
 fn current_vcpu_context() -> VCpuTaskContext {
     let task = Task::current().expect("current VM/vCPU context requested outside of a task");
     *task
-        .data()
+        .local_data()
         .downcast_ref::<VCpuTaskContext>()
         .expect("current task is not an Axvisor vCPU task")
+}
+
+fn kernel_task_runtime() -> &'static dyn KernelTaskRuntime {
+    *KERNEL_TASK_RUNTIME
+        .get()
+        .expect("Axvisor kernel task runtime is not installed")
+}
+
+fn spawn_kernel_task(
+    entry: Box<dyn FnOnce() + Send + 'static>,
+    cpu_affinity: CpuSet,
+    local_data: Option<Box<dyn Any + Send>>,
+) -> Arc<Task> {
+    kernel_task_runtime().spawn_task(entry, cpu_affinity, local_data)
+}
+
+fn cpu_set_from_mask(mask: usize) -> CpuSet {
+    let mut cpu_set = CpuSet::new_empty();
+    for cpu in all_cpus() {
+        let bit = cpu.as_usize();
+        if bit < usize::BITS as usize && (mask & (1usize << bit)) != 0 {
+            cpu_set.add(cpu);
+        }
+    }
+    assert!(
+        !cpu_set.is_empty(),
+        "Axvisor requested an empty or invalid host CPU mask: {mask:#x}"
+    );
+    cpu_set
 }
 
 fn get_wait_queue(id: usize) -> Arc<WaitQueue> {
@@ -272,27 +326,7 @@ impl host::HostIf for HostIfImpl {
 
     fn spawn_cpu_init_task(cpu_id: usize, task: Box<dyn FnOnce() + Send + 'static>) {
         let cpu = CpuId::try_from(cpu_id).expect("invalid CPU id for Axvisor initialization");
-        let current_cpu = CpuId::current_racy();
-
-        if ostd::cpu::num_cpus() == 1 && cpu == current_cpu {
-            task();
-            return;
-        }
-
-        if cpu == current_cpu {
-            TaskOptions::new(move || {
-                task();
-            })
-            .spawn()
-            .expect("failed to spawn Axvisor host CPU init task on local CPU");
-            return;
-        }
-
-        panic!(
-            "Asterinas host runtime does not yet support spawning CPU-affine init tasks on \
-             remote CPUs via ostd; target_cpu={cpu_id}, current_cpu={}",
-            current_cpu.as_usize()
-        );
+        let _ = spawn_kernel_task(task, CpuSet::from(cpu), None);
     }
 
     fn yield_now() {
@@ -423,7 +457,7 @@ impl task::TaskIf for TaskIfImpl {
     fn spawn_vcpu_task_raw(
         vm_id: vmm::VMId,
         vcpu_id: vmm::VCpuId,
-        _phys_cpu_set: Option<usize>,
+        phys_cpu_set: Option<usize>,
         _stack_size: usize,
         entry: Box<dyn FnOnce() + Send + 'static>,
     ) -> task::TaskHandle {
@@ -431,14 +465,16 @@ impl task::TaskIf for TaskIfImpl {
         let completion = Arc::new(TaskCompletion::new());
         let completion_for_task = completion.clone();
         let name = format!("VM[{vm_id}]-VCpu[{vcpu_id}]");
+        let cpu_affinity = phys_cpu_set.map_or_else(CpuSet::new_full, cpu_set_from_mask);
 
-        let task = TaskOptions::new(move || {
-            entry();
-            completion_for_task.finish();
-        })
-        .data(VCpuTaskContext::new(vm_id, vcpu_id))
-        .spawn()
-        .expect("failed to spawn Axvisor vCPU task");
+        let task = spawn_kernel_task(
+            Box::new(move || {
+                entry();
+                completion_for_task.finish();
+            }),
+            cpu_affinity,
+            Some(Box::new(VCpuTaskContext::new(vm_id, vcpu_id))),
+        );
 
         TASKS.lock().insert(
             handle.as_raw(),

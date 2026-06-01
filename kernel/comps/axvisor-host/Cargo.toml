@@ -7,11 +7,12 @@ edition.workspace = true
 aster-console.workspace = true
 aster-logger.workspace = true
 aster-time.workspace = true
-ax-percpu = { path = "../../../../tgoskits/components/percpu/percpu", features = ["sp-naive"] }
+ax-percpu = { path = "../../../../tgoskits/components/percpu/percpu", features = ["custom-base"] }
 ax-errno = { path = "../../../../tgoskits/components/axerrno" }
 axvisor_api = { path = "../../../../tgoskits/virtualization/axvisor_api" }
 axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core", features = ["vmx"] }
 ostd.workspace = true
+spin.workspace = true
 
 [lints]
 workspace = true

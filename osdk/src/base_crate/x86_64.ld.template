@@ -159,9 +159,16 @@ SECTIONS
     .cpu_local_tss          : AT(ADDR(.cpu_local_tss) - KERNEL_VMA) {
         *(.cpu_local_tss)
     } : data
+    _percpu_load_start = __cpu_local_start;
     .cpu_local              : AT(ADDR(.cpu_local) - KERNEL_VMA) {
         KEEP(*(SORT(.cpu_local)))
     } : data
+    . = ALIGN(64);
+    .percpu                 : AT(ADDR(.percpu) - KERNEL_VMA) {
+        KEEP(*(.percpu))
+        KEEP(*(.percpu.*))
+    } : data
+    _percpu_load_end = .;
     __cpu_local_end = .;
 
     .bss                    : AT(ADDR(.bss) - KERNEL_VMA) {

@@ -44,6 +44,24 @@ fn are_files_identical(file1: &PathBuf, file2: &PathBuf) -> Result<bool> {
     }
 }
 
+fn generated_base_crate_is_reusable(base_crate_path: &Path, base_crate_tmp_path: &Path) -> bool {
+    const FILES: &[&str] = &[
+        "Cargo.toml",
+        "src/main.rs",
+        "x86_64.ld",
+        "riscv64.ld",
+        "loongarch64.ld",
+    ];
+
+    FILES.iter().all(|path| {
+        are_files_identical(
+            &base_crate_path.join(path),
+            &base_crate_tmp_path.join(path),
+        )
+        .is_ok_and(|res| res)
+    })
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BaseCrateType {
     /// The base crate is for running the target kernel crate.
@@ -88,16 +106,9 @@ pub fn new_base_crate(
             &dep_crate_path,
             link_unit_test_kernel,
         );
-        let cargo_result = are_files_identical(
-            &base_crate_path.join("Cargo.toml"),
-            &base_crate_tmp_path.join("Cargo.toml"),
-        );
-        let main_rs_result = are_files_identical(
-            &base_crate_path.join("src").join("main.rs"),
-            &base_crate_tmp_path.join("src").join("main.rs"),
-        );
+        let is_reusable = generated_base_crate_is_reusable(&base_crate_path, &base_crate_tmp_path);
         std::fs::remove_dir_all(&base_crate_tmp_path).unwrap();
-        if cargo_result.is_ok_and(|res| res) && main_rs_result.is_ok_and(|res| res) {
+        if is_reusable {
             info!("Reusing existing base crate");
             return base_crate_path;
         }

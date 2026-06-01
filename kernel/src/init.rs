@@ -4,7 +4,7 @@
 
 use aster_cmdline::INIT_PROC_ARGS;
 use component::InitStage;
-use ostd::{cpu::CpuId, util::id_set::Id};
+use ostd::{cpu::{CpuId, CpuSet}, task::Task, util::id_set::Id};
 use spin::once::Once;
 
 use crate::{
@@ -14,6 +14,37 @@ use crate::{
     sched::SchedPolicy,
     thread::kernel_thread::ThreadOptions,
 };
+
+#[cfg(feature = "axvisor")]
+struct AxvisorKernelTaskRuntime;
+
+#[cfg(feature = "axvisor")]
+static AXVISOR_KERNEL_TASK_RUNTIME: AxvisorKernelTaskRuntime = AxvisorKernelTaskRuntime;
+
+#[cfg(feature = "axvisor")]
+impl aster_axvisor_host::KernelTaskRuntime for AxvisorKernelTaskRuntime {
+    fn spawn_task(
+        &self,
+        entry: Box<dyn FnOnce() + Send + 'static>,
+        cpu_affinity: CpuSet,
+        local_data: Option<Box<dyn Any + Send>>,
+    ) -> Arc<Task> {
+        let options = ThreadOptions::new(move || entry()).cpu_affinity(cpu_affinity);
+        let options = if let Some(local_data) = local_data {
+            options.local_data_raw(local_data)
+        } else {
+            options
+        };
+        let task = options.build();
+        task.run();
+        task
+    }
+}
+
+#[cfg(feature = "axvisor")]
+fn init_axvisor_host_runtime() {
+    aster_axvisor_host::install_kernel_task_runtime(&AXVISOR_KERNEL_TASK_RUNTIME);
+}
 
 pub(super) fn main() {
     // Initialize the global states for all CPUs.
@@ -136,7 +167,10 @@ fn first_kthread() {
     init_in_first_kthread(&fs_resolver);
 
     #[cfg(feature = "axvisor")]
-    aster_axvisor_host::run();
+    {
+        init_axvisor_host_runtime();
+        aster_axvisor_host::run();
+    }
 
     print_banner();
 
