@@ -40,21 +40,21 @@ supported_archs = ["x86_64"]
 boot.method = "qemu-direct"
 boot.kcmd_args = ["ostd.log_level=info"]
 build.strip_elf = false
-qemu.args = "$(./tools/axvisor_qemu_args.sh axvisor-x86_64)"
+qemu.args = ""
 
 [scheme."axvisor-riscv64"]
 supported_archs = ["riscv64"]
 boot.method = "qemu-direct"
 boot.kcmd_args = ["ostd.log_level=info"]
 build.strip_elf = false
-qemu.args = "$(./tools/axvisor_qemu_args.sh axvisor-riscv64)"
+qemu.args = ""
 
 [scheme."axvisor-loongarch64"]
 supported_archs = ["loongarch64"]
 boot.method = "qemu-direct"
 boot.kcmd_args = ["ostd.log_level=info"]
 build.strip_elf = false
-qemu.args = "$(./tools/axvisor_qemu_args.sh axvisor-loongarch64)"
+qemu.args = ""
 
 [scheme."iommu"]
 supported_archs = ["x86_64"]

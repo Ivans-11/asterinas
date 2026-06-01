@@ -41,10 +41,18 @@ impl Default for Arch {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct HostManifest {
+    pub scheme: String,
+    #[serde(default = "default_features")]
+    pub features: Vec<String>,
+    #[serde(default)]
+    pub host_qemu_args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct CaseManifest {
     pub arch: Arch,
     pub guest: String,
-    pub scheme: String,
     pub image: String,
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
@@ -55,7 +63,13 @@ pub struct CaseManifest {
     pub shell_prompt: Option<String>,
     pub shell_init_cmd: Option<String>,
     #[serde(default)]
+    pub extra_features: Vec<String>,
+    #[serde(default)]
     pub extra_qemu_args: Vec<String>,
+}
+
+fn default_features() -> Vec<String> {
+    vec!["axvisor".to_string()]
 }
 
 fn default_timeout_secs() -> u64 {
@@ -63,8 +77,14 @@ fn default_timeout_secs() -> u64 {
 }
 
 #[derive(Debug, Clone)]
+pub struct LoadedHost {
+    pub manifest: HostManifest,
+}
+
+#[derive(Debug, Clone)]
 pub struct LoadedCase {
     pub dir: PathBuf,
+    pub host: LoadedHost,
     pub manifest: CaseManifest,
 }
 
@@ -88,6 +108,7 @@ pub fn load_all_cases(workspace_root: &Path) -> Result<Vec<LoadedCase>> {
         if !arch_entry.file_type()?.is_dir() {
             continue;
         }
+        let arch_dir = arch_entry.path();
         for guest_entry in fs::read_dir(arch_entry.path())
             .with_context(|| format!("failed to read {}", arch_entry.path().display()))?
         {
@@ -101,11 +122,19 @@ pub fn load_all_cases(workspace_root: &Path) -> Result<Vec<LoadedCase>> {
                 continue;
             }
             let manifest = load_case_manifest(&manifest_path)?;
+            let host = load_host_manifest(&arch_dir)?.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "missing host.toml for Axvisor arch `{}` under {}",
+                    manifest.arch.as_str(),
+                    arch_dir.display()
+                )
+            })?;
             if !case_dir.join("vm.toml").is_file() {
                 bail!("missing vm.toml for case {}", case_dir.display());
             }
             cases.push(LoadedCase {
                 dir: case_dir,
+                host,
                 manifest,
             });
         }
@@ -142,6 +171,23 @@ pub fn resolve_case(workspace_root: &Path, arch: Option<Arch>, guest: &str) -> R
             bail!("guest `{guest}` is ambiguous. Matching cases: {labels}. Pass --arch explicitly.")
         }
     }
+}
+
+pub fn resolve_host(workspace_root: &Path, arch: Arch) -> Result<Option<LoadedHost>> {
+    let arch_dir = workspace_root.join("test-suit/axvisor").join(arch.as_str());
+    load_host_manifest(&arch_dir)
+}
+
+fn load_host_manifest(arch_dir: &Path) -> Result<Option<LoadedHost>> {
+    let manifest_path = arch_dir.join("host.toml");
+    if !manifest_path.is_file() {
+        return Ok(None);
+    }
+    let text = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let manifest: HostManifest = toml::from_str(&text)
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    Ok(Some(LoadedHost { manifest }))
 }
 
 fn load_case_manifest(path: &Path) -> Result<CaseManifest> {

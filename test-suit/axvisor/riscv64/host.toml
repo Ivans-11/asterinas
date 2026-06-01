@@ -1,0 +1,22 @@
+scheme = "axvisor-riscv64"
+features = ["axvisor", "sstc"]
+host_qemu_args = [
+  "-cpu",
+  "rv64,h=true,svpbmt=true,sstc=true",
+  "-machine",
+  "virt",
+  "-m",
+  "8G",
+  "-smp",
+  "1",
+  "--no-reboot",
+  "-nographic",
+  "-display",
+  "none",
+  "-serial",
+  "chardev:mux",
+  "-monitor",
+  "chardev:mux",
+  "-chardev",
+  "stdio,id=mux,mux=on,signal=off,logfile=qemu.log",
+]

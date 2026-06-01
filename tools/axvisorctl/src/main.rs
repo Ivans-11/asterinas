@@ -15,7 +15,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use case::{Arch, LoadedCase};
+use case::{Arch, LoadedCase, LoadedHost};
 use clap::{Args, Parser, Subcommand};
 use image::ImageStore;
 use regex::Regex;
@@ -86,6 +86,15 @@ struct StagedCase {
     loaded: LoadedCase,
     vmconfig: PathBuf,
     image_dir: PathBuf,
+    scheme: String,
+    features: Vec<String>,
+    rendered_qemu_args: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct HostLaunchConfig {
+    scheme: String,
+    features: Vec<String>,
     rendered_qemu_args: Vec<String>,
 }
 
@@ -236,22 +245,25 @@ fn main() -> Result<()> {
 fn run_command(workspace: &Workspace, args: RunArgs) -> Result<()> {
     fs::create_dir_all(&workspace.target_dir)
         .with_context(|| format!("failed to create {}", workspace.target_dir.display()))?;
-    let initramfs =
-        initramfs::prepare_initramfs(&workspace.root, resolve_run_arch(workspace, &args)?)?;
+    let arch = resolve_run_arch(workspace, &args)?;
+    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch)?;
     let staged_case = match args.guest.as_deref() {
         Some(guest) => Some(stage_case(workspace, args.arch, guest)?),
         None => None,
     };
-
-    let arch = staged_case
-        .as_ref()
-        .map(|case| case.loaded.manifest.arch)
-        .or(args.arch)
-        .unwrap_or_default();
+    let host_launch = match staged_case.as_ref() {
+        Some(case) => Some(HostLaunchConfig {
+            scheme: case.scheme.clone(),
+            features: case.features.clone(),
+            rendered_qemu_args: case.rendered_qemu_args.clone(),
+        }),
+        None => case::resolve_host(&workspace.root, arch)?.map(stage_host_launch),
+    };
     let mut invocation = build_osdk_command(
         workspace,
         arch,
         initramfs,
+        host_launch.as_ref(),
         staged_case.as_ref(),
         OsdkMode::Run,
     )?;
@@ -287,12 +299,18 @@ fn test_command(workspace: &Workspace, args: TestArgs) -> Result<()> {
     fs::create_dir_all(&workspace.target_dir)
         .with_context(|| format!("failed to create {}", workspace.target_dir.display()))?;
     let staged_case = stage_case(workspace, args.arch, &args.guest)?;
+    let host_launch = HostLaunchConfig {
+        scheme: staged_case.scheme.clone(),
+        features: staged_case.features.clone(),
+        rendered_qemu_args: staged_case.rendered_qemu_args.clone(),
+    };
     let initramfs =
         initramfs::prepare_initramfs(&workspace.root, staged_case.loaded.manifest.arch)?;
     let mut build = build_osdk_command(
         workspace,
         staged_case.loaded.manifest.arch,
         initramfs.clone(),
+        Some(&host_launch),
         Some(&staged_case),
         OsdkMode::Build,
     )?;
@@ -308,6 +326,7 @@ fn test_command(workspace: &Workspace, args: TestArgs) -> Result<()> {
         workspace,
         staged_case.loaded.manifest.arch,
         initramfs,
+        Some(&host_launch),
         Some(&staged_case),
         OsdkMode::Run,
     )?;
@@ -354,14 +373,22 @@ fn stage_case(workspace: &Workspace, arch: Option<Arch>, guest: &str) -> Result<
         )
     })?;
 
+    let features = merge_features(
+        &loaded.host.manifest.features,
+        &loaded.manifest.extra_features,
+    );
     let rendered_qemu_args = loaded
+        .host
         .manifest
-        .extra_qemu_args
+        .host_qemu_args
         .iter()
+        .chain(loaded.manifest.extra_qemu_args.iter())
         .map(|arg| render_case_token(arg, &staged_dir, &image_dir, &workspace.root))
         .collect();
 
     Ok(StagedCase {
+        scheme: loaded.host.manifest.scheme.clone(),
+        features,
         vmconfig: staged_dir.join("vm.toml"),
         image_dir,
         rendered_qemu_args,
@@ -379,6 +406,7 @@ fn build_osdk_command(
     workspace: &Workspace,
     arch: Arch,
     initramfs: PathBuf,
+    host_launch: Option<&HostLaunchConfig>,
     staged_case: Option<&StagedCase>,
     mode: OsdkMode,
 ) -> Result<Command> {
@@ -390,8 +418,8 @@ fn build_osdk_command(
         },
     )?;
     let scheme = env::var("AXVISOR_SCHEME").unwrap_or_else(|_| {
-        staged_case
-            .map(|case| case.loaded.manifest.scheme.clone())
+        host_launch
+            .map(|config| config.scheme.clone())
             .unwrap_or_else(|| arch.default_scheme().to_string())
     });
     let vdso_dir = env::var_os("VDSO_LIBRARY_DIR")
@@ -401,6 +429,11 @@ fn build_osdk_command(
         bail!("missing VDSO_LIBRARY_DIR: {}", vdso_dir.display());
     }
 
+    let features = host_launch
+        .map(|config| config.features.join(","))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "axvisor".to_string());
+
     command
         .current_dir(&workspace.root)
         .env("OSDK_TARGET_ARCH", arch.as_str())
@@ -408,7 +441,7 @@ fn build_osdk_command(
         .arg("--scheme")
         .arg(&scheme)
         .arg("--features")
-        .arg("axvisor")
+        .arg(&features)
         .arg("--initramfs")
         .arg(&initramfs);
 
@@ -417,7 +450,7 @@ fn build_osdk_command(
     }
 
     if matches!(mode, OsdkMode::Run) {
-        let qemu_args = compose_qemu_args(staged_case)?;
+        let qemu_args = compose_qemu_args(host_launch)?;
         if !qemu_args.is_empty() {
             command.arg(format!("--qemu-args={qemu_args}"));
         }
@@ -426,10 +459,10 @@ fn build_osdk_command(
     Ok(command)
 }
 
-fn compose_qemu_args(staged_case: Option<&StagedCase>) -> Result<String> {
+fn compose_qemu_args(host_launch: Option<&HostLaunchConfig>) -> Result<String> {
     let mut parts = Vec::new();
-    if let Some(case) = staged_case {
-        parts.extend(case.rendered_qemu_args.iter().cloned());
+    if let Some(config) = host_launch {
+        parts.extend(config.rendered_qemu_args.iter().cloned());
     }
     if let Ok(extra) = env::var("AXVISOR_EXTRA_QEMU_ARGS") {
         let extra = extra.trim();
@@ -769,6 +802,24 @@ fn render_case_token(
         .replace("{case_dir}", &case_dir.to_string_lossy())
         .replace("{guest_dir}", &guest_dir.to_string_lossy())
         .replace("{workspace_root}", &workspace_root.to_string_lossy())
+}
+
+fn stage_host_launch(host: LoadedHost) -> HostLaunchConfig {
+    HostLaunchConfig {
+        scheme: host.manifest.scheme,
+        features: host.manifest.features,
+        rendered_qemu_args: host.manifest.host_qemu_args,
+    }
+}
+
+fn merge_features(base: &[String], extra: &[String]) -> Vec<String> {
+    let mut merged = Vec::new();
+    for feature in base.iter().chain(extra.iter()) {
+        if !merged.iter().any(|existing| existing == feature) {
+            merged.push(feature.clone());
+        }
+    }
+    merged
 }
 
 fn remove_path(path: &Path) -> Result<()> {

@@ -1,6 +1,5 @@
 arch = "riscv64"
 guest = "linux"
-scheme = "axvisor-riscv64"
 image = "qemu_riscv64_linux"
 timeout_secs = 180
 success_regex = ["(?m)^guest test pass!\\s*$"]

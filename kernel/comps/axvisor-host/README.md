@@ -37,11 +37,14 @@ tools/axvisor test --arch riscv64 --guest arceos
 
 The new tooling path:
 
+- loads host baseline config from `test-suit/axvisor/<arch>/host.toml`
+  such as `["axvisor", "vmx"]` on x86_64 and `["axvisor", "sstc"]` on riscv64
 - stages static case assets from `test-suit/axvisor/<arch>/<guest>/`
 - downloads and caches guest images under `target/axvisor/images/`
 - stages per-run VM configs under `target/axvisor/cases/`
 - injects `AXVISOR_VM_CONFIGS` for `axvisor_core` build-time embedding
 - points `VDSO_LIBRARY_DIR` at the local vDSO artifacts
+- merges host `features` / `host_qemu_args` with case-owned `extra_features` / `extra_qemu_args`
 - uses per-case static `vm.toml` instead of patching generated configs at runtime
 - uses `test` to watch QEMU output, inject guest-side shell commands when needed,
   and decide pass/fail from case-owned regexes

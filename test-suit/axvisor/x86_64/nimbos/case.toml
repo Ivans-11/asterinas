@@ -1,6 +1,5 @@
 arch = "x86_64"
 guest = "nimbos"
-scheme = "axvisor-x86_64"
 image = "qemu_x86_64_nimbos"
 timeout_secs = 240
 success_regex = ["(?m)^usertests passed!\\s*$"]

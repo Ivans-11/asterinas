@@ -84,6 +84,8 @@ loongArch64 = "0.2.5"
 [features]
 default = ["cvm_guest"]
 axvisor = ["dep:aster-axvisor-host", "aster-virtio/axvisor"]
+vmx = ["axvisor", "aster-axvisor-host/vmx"]
+sstc = ["axvisor", "aster-axvisor-host/sstc"]
 coverage = ["ostd/coverage"]
 cvm_guest = ["dep:tdx-guest", "ostd/cvm_guest", "aster-virtio/cvm_guest"]
 # By default we use the Sv48 address translation mode.

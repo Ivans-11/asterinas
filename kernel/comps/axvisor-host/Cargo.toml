@@ -3,6 +3,11 @@ name = "aster-axvisor-host"
 version = "0.1.0"
 edition.workspace = true
 
+[features]
+default = []
+vmx = ["axvisor_core/vmx"]
+sstc = ["axvisor_core/sstc"]
+
 [dependencies]
 aster-console.workspace = true
 aster-logger.workspace = true
@@ -10,20 +15,9 @@ aster-time.workspace = true
 ax-percpu = { path = "../../../../tgoskits/components/percpu/percpu", features = ["custom-base"] }
 ax-errno = { path = "../../../../tgoskits/components/axerrno" }
 axvisor_api = { path = "../../../../tgoskits/virtualization/axvisor_api" }
+axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core" }
 ostd.workspace = true
 spin.workspace = true
-
-[target.'cfg(target_arch = "x86_64")'.dependencies]
-axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core", features = ["vmx"] }
-
-[target.'cfg(target_arch = "riscv64")'.dependencies]
-axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core", features = ["sstc"] }
-
-[target.'cfg(target_arch = "loongarch64")'.dependencies]
-axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core" }
-
-[target.'cfg(target_arch = "aarch64")'.dependencies]
-axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core" }
 
 [lints]
 workspace = true
