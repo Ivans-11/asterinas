@@ -17,3 +17,8 @@ The helper script:
 - points `VDSO_LIBRARY_DIR` at the local vDSO artifacts
 - appends the guest rootfs disk and forces `-smp 2` so Axvisor can pin the
   guest vCPU to host CPU 1
+
+Current validated milestone:
+
+- `tools/axvisor_guest_probe.sh run --guest nimbos` on x86_64 KVM reaches the
+  NimbOS user shell on top of the Asterinas-hosted Axvisor path.
