@@ -35,9 +35,10 @@ boot.method = "qemu-direct"
 build.strip_elf = true
 qemu.args = "$(./tools/qemu_args.sh microvm)"
 
-[scheme."axvisor-probe"]
+[scheme."axvisor-x86_64"]
 supported_archs = ["x86_64"]
 boot.method = "qemu-direct"
+boot.kcmd_args = ["ostd.log_level=info"]
 build.strip_elf = false
 
 qemu.args = """\
@@ -53,6 +54,35 @@ qemu.args = """\
     -monitor chardev:mux \
     -chardev stdio,id=mux,mux=on,signal=off,logfile=qemu.log \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04
+"""
+
+[scheme."axvisor-riscv64"]
+supported_archs = ["riscv64"]
+boot.method = "qemu-direct"
+boot.kcmd_args = ["ostd.log_level=info"]
+build.strip_elf = false
+qemu.args = "$(./tools/qemu_args.sh riscv)"
+
+[scheme."axvisor-loongarch64"]
+supported_archs = ["loongarch64"]
+boot.method = "qemu-direct"
+boot.kcmd_args = ["ostd.log_level=info"]
+build.strip_elf = false
+
+qemu.args = """\
+    -machine virt \
+    -m 8G \
+    -smp 1 \
+    --no-reboot \
+    -nographic \
+    -display none \
+    -serial chardev:mux \
+    -monitor chardev:mux \
+    -chardev stdio,id=mux,mux=on,signal=off,logfile=qemu.log \
+    -device virtio-keyboard-pci \
+    -device virtio-serial \
+    -device virtconsole,chardev=mux \
+    -rtc base=utc
 """
 
 [scheme."iommu"]

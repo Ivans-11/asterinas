@@ -10,9 +10,20 @@ aster-time.workspace = true
 ax-percpu = { path = "../../../../tgoskits/components/percpu/percpu", features = ["custom-base"] }
 ax-errno = { path = "../../../../tgoskits/components/axerrno" }
 axvisor_api = { path = "../../../../tgoskits/virtualization/axvisor_api" }
-axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core", features = ["vmx"] }
 ostd.workspace = true
 spin.workspace = true
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core", features = ["vmx"] }
+
+[target.'cfg(target_arch = "riscv64")'.dependencies]
+axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core" }
+
+[target.'cfg(target_arch = "loongarch64")'.dependencies]
+axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core" }
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core" }
 
 [lints]
 workspace = true

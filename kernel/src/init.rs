@@ -4,7 +4,11 @@
 
 use aster_cmdline::INIT_PROC_ARGS;
 use component::InitStage;
-use ostd::{cpu::{CpuId, CpuSet}, task::Task, util::id_set::Id};
+use ostd::{
+    cpu::{CpuId, CpuSet},
+    task::Task,
+    util::id_set::Id,
+};
 use spin::once::Once;
 
 use crate::{

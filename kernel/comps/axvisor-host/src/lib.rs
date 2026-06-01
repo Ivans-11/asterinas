@@ -5,6 +5,8 @@
 #![no_std]
 #![deny(unsafe_code)]
 
+mod arch;
+
 extern crate alloc;
 
 use alloc::{
@@ -25,7 +27,7 @@ use core::{
 use ax_errno::{AxResult, ax_err_type};
 use axvisor_api::{
     api_impl,
-    arch::{self, CacheOp},
+    arch::{self as api_arch, CacheOp},
     console, fs, host, irq,
     memory::{self, PhysAddr, VirtAddr},
     platform, process, task, time, vmm,
@@ -157,7 +159,10 @@ pub fn install_kernel_task_runtime(runtime: &'static dyn KernelTaskRuntime) {
         is_new = true;
         runtime
     });
-    assert!(is_new, "Axvisor kernel task runtime has already been installed");
+    assert!(
+        is_new,
+        "Axvisor kernel task runtime has already been installed"
+    );
 }
 
 impl ConsoleInput {
@@ -318,7 +323,9 @@ fn alloc_aligned_segment(num_frames: usize, frame_align: usize) -> Option<Segmen
 
 #[api_impl]
 impl host::HostIf for HostIfImpl {
-    fn prepare_virtualization() {}
+    fn prepare_virtualization() {
+        arch::prepare_virtualization();
+    }
 
     fn get_host_cpu_num() -> usize {
         ostd::cpu::num_cpus()
@@ -387,17 +394,15 @@ impl time::TimeIf for TimeIfImpl {
         }
     }
 
-    fn set_oneshot_timer(_deadline: time::TimeValue) {
-        // Asterinas does not currently expose a host one-shot timer programming
-        // API to components. This is sufficient for the current shell-first
-        // bring-up path, but guest timer delivery still needs a real bridge.
+    fn set_oneshot_timer(deadline: time::TimeValue) {
+        arch::set_oneshot_timer(deadline)
     }
 }
 
 #[api_impl]
 impl platform::PlatformIf for PlatformIfImpl {
     fn get_host_fdt_ptr() -> Option<PhysAddr> {
-        None
+        arch::get_host_fdt_ptr()
     }
 
     fn shutdown_host_filesystems() -> AxResult<()> {
@@ -569,12 +574,7 @@ impl memory::MemoryIf for MemoryIfImpl {
     }
 
     fn virt_to_phys(addr: VirtAddr) -> PhysAddr {
-        let linear_mapping_base = paddr_to_vaddr(0);
-        PhysAddr::from_usize(
-            addr.as_usize()
-                .checked_sub(linear_mapping_base)
-                .expect("virtual address is outside the linear-mapped physical range"),
-        )
+        arch::linear_mapping_virt_to_phys(addr.as_usize())
     }
 }
 
@@ -622,24 +622,14 @@ impl vmm::VmmIf for VmmIfImpl {
 }
 
 #[api_impl]
-impl arch::ArchIf for ArchIfImpl {
+impl api_arch::ArchIf for ArchIfImpl {
     fn inject_virtual_interrupt(vector: vmm::InterruptVector) {
-        #[cfg(target_arch = "x86_64")]
-        axvisor_core::arch::x86_64::inject_interrupt(vector);
-
-        #[cfg(target_arch = "riscv64")]
-        axvisor_core::arch::riscv64::inject_interrupt(vector as usize);
-
-        #[cfg(target_arch = "loongarch64")]
-        axvisor_core::arch::loongarch64::inject_interrupt(vector as usize);
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            let _ = vector;
-        }
+        arch::inject_virtual_interrupt(vector);
     }
 
-    fn dcache_range(_op: CacheOp, _addr: VirtAddr, _size: usize) {}
+    fn dcache_range(op: CacheOp, addr: VirtAddr, size: usize) {
+        arch::dcache_range(op, addr, size)
+    }
 }
 
 #[api_impl]

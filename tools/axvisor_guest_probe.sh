@@ -6,6 +6,7 @@ TGOSKITS_ROOT="${AXVISOR_TGOSKITS_ROOT:-${ASTERINAS_ROOT}/../tgoskits}"
 SETUP_QEMU_SCRIPT="${TGOSKITS_ROOT}/os/axvisor/scripts/setup_qemu.sh"
 DEFAULT_VDSO_DIR="${ASTERINAS_ROOT}/../linux_vdso"
 LOCAL_OSDK_BIN="${ASTERINAS_ROOT}/osdk/target/debug/cargo-osdk"
+AXVISOR_SCHEME="${AXVISOR_SCHEME:-axvisor-x86_64}"
 
 MODE="run"
 GUEST="nimbos"
@@ -20,6 +21,7 @@ Supported guests:
   linux-x86_64-uefi
 
 Environment overrides:
+  AXVISOR_SCHEME          OSDK scheme to use, defaults to axvisor-x86_64
   AXVISOR_TGOSKITS_ROOT   sibling tgoskits checkout
   VDSO_LIBRARY_DIR        vDSO artifact directory
   AXVISOR_EXTRA_QEMU_ARGS extra raw QEMU arguments appended to the probe run
@@ -92,12 +94,12 @@ run_probe() {
 
   if [ "${MODE}" = "build" ]; then
     (cd "${ASTERINAS_ROOT}" && AXVISOR_VM_CONFIGS="${vmconfig}" VDSO_LIBRARY_DIR="${vdso_dir}" \
-      run_osdk build --scheme axvisor-probe --features axvisor)
+      run_osdk build --scheme "${AXVISOR_SCHEME}" --features axvisor)
     return
   fi
 
   (cd "${ASTERINAS_ROOT}" && AXVISOR_VM_CONFIGS="${vmconfig}" VDSO_LIBRARY_DIR="${vdso_dir}" \
-    run_osdk run --scheme axvisor-probe --features axvisor --qemu-args="${qemu_args}")
+    run_osdk run --scheme "${AXVISOR_SCHEME}" --features axvisor --qemu-args="${qemu_args}")
 }
 
 while [ $# -gt 0 ]; do
