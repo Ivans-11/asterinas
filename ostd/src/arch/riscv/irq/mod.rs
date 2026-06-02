@@ -13,6 +13,7 @@ pub(crate) use ops::{
     disable_local, disable_local_and_halt, enable_local, enable_local_and_halt, is_local_enabled,
 };
 pub(crate) use remapping::IrqRemapping;
+
 use crate::arch::irq::chip::InterruptSourceOnChip;
 
 pub(crate) const IRQ_NUM_MIN: u8 = 0;

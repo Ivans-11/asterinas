@@ -95,7 +95,7 @@ impl LoadedCase {
 }
 
 pub fn load_all_cases(workspace_root: &Path) -> Result<Vec<LoadedCase>> {
-    let suite_root = workspace_root.join("test-suit/axvisor");
+    let suite_root = workspace_root.join("test/axvisor");
     let mut cases = Vec::new();
     if !suite_root.is_dir() {
         return Ok(cases);
@@ -174,7 +174,7 @@ pub fn resolve_case(workspace_root: &Path, arch: Option<Arch>, guest: &str) -> R
 }
 
 pub fn resolve_host(workspace_root: &Path, arch: Arch) -> Result<Option<LoadedHost>> {
-    let arch_dir = workspace_root.join("test-suit/axvisor").join(arch.as_str());
+    let arch_dir = workspace_root.join("test/axvisor").join(arch.as_str());
     load_host_manifest(&arch_dir)
 }
 

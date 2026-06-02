@@ -37,9 +37,9 @@ tools/axvisor test --arch riscv64 --guest arceos
 
 The new tooling path:
 
-- loads host baseline config from `test-suit/axvisor/<arch>/host.toml`
+- loads host baseline config from `test/axvisor/<arch>/host.toml`
   such as `["axvisor", "vmx"]` on x86_64 and `["axvisor", "sstc"]` on riscv64
-- stages static case assets from `test-suit/axvisor/<arch>/<guest>/`
+- stages static case assets from `test/axvisor/<arch>/<guest>/`
 - downloads and caches guest images under `target/axvisor/images/`
 - stages per-run VM configs under `target/axvisor/cases/`
 - injects `AXVISOR_VM_CONFIGS` for `axvisor_core` build-time embedding
