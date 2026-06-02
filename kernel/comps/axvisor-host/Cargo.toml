@@ -12,10 +12,10 @@ sstc = ["axvisor_core/sstc"]
 aster-console.workspace = true
 aster-logger.workspace = true
 aster-time.workspace = true
-ax-percpu = { path = "../../../../tgoskits/components/percpu/percpu", features = ["custom-base"] }
-ax-errno = { path = "../../../../tgoskits/components/axerrno" }
-axvisor_api = { path = "../../../../tgoskits/virtualization/axvisor_api" }
-axvisor_core = { path = "../../../../tgoskits/virtualization/axvisor_core" }
+ax-percpu = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core", features = ["custom-base"] }
+ax-errno = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core" }
+axvisor_api = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core" }
+axvisor_core = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core" }
 ostd.workspace = true
 spin.workspace = true
 
