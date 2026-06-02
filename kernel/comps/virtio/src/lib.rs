@@ -8,7 +8,7 @@ extern crate alloc;
 #[macro_use]
 extern crate ostd_pod;
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::boxed::Box;
 use core::hint::spin_loop;
 
 use aster_block::MajorIdOwner;
@@ -19,8 +19,8 @@ use device::{
     entropy::device::EntropyDevice, filesystem::device::FileSystemDevice,
     input::device::InputDevice, network::device::NetworkDevice, socket::device::SocketDevice,
 };
-use ostd::{error, info, warn};
-use spin::{Mutex, Once};
+use ostd::{error, warn};
+use spin::Once;
 use transport::{DeviceStatus, mmio::VIRTIO_MMIO_DRIVER, pci::VIRTIO_PCI_DRIVER};
 
 use crate::transport::VirtioTransport;
@@ -39,13 +39,6 @@ mod queue;
 mod transport;
 
 static VIRTIO_BLOCK_MAJOR_ID: Once<MajorIdOwner> = Once::new();
-#[cfg(feature = "axvisor")]
-static PASSTHROUGH_TRANSPORTS: Mutex<Vec<Box<dyn VirtioTransport>>> = Mutex::new(Vec::new());
-
-#[cfg(feature = "axvisor")]
-fn retain_passthrough_transport(transport: Box<dyn VirtioTransport>) {
-    PASSTHROUGH_TRANSPORTS.lock().push(transport);
-}
 
 #[init_component]
 fn virtio_component_init() -> Result<(), ComponentInitError> {
@@ -59,21 +52,6 @@ fn virtio_component_init() -> Result<(), ComponentInitError> {
     device::socket::init();
 
     while let Some(mut transport) = pop_device_transport() {
-        let device_type = transport.device_type();
-
-        #[cfg(feature = "axvisor")]
-        if matches!(device_type, VirtioDeviceType::Block) {
-            info!(
-                "Skipping host virtio block device {:?} in axvisor mode",
-                device_type
-            );
-            // Keep the MMIO transport alive so its IRQ mapping remains
-            // registered for passthrough guests, while leaving the device
-            // otherwise untouched by the host.
-            retain_passthrough_transport(transport);
-            continue;
-        }
-
         // Reset device
         transport
             .write_device_status(DeviceStatus::empty())
@@ -96,7 +74,8 @@ fn virtio_component_init() -> Result<(), ComponentInitError> {
             transport.write_device_status(status).unwrap();
         }
 
-        let res = match device_type {
+        let device_type = transport.device_type();
+        let res = match transport.device_type() {
             VirtioDeviceType::Block => BlockDevice::init(transport),
             VirtioDeviceType::Console => ConsoleDevice::init(transport),
             VirtioDeviceType::Entropy => EntropyDevice::init(transport),
