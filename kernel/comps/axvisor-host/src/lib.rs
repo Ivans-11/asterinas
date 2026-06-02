@@ -16,7 +16,6 @@ use alloc::{
     string::String,
     sync::Arc,
     vec,
-    vec::Vec,
 };
 use core::{
     any::Any,
@@ -86,7 +85,6 @@ static TASKS: SpinLock<BTreeMap<usize, Arc<TaskEntry>>, LocalIrqDisabled> =
 
 static IRQ_HANDLERS: SpinLock<BTreeMap<usize, irq::IrqHandler>, LocalIrqDisabled> =
     SpinLock::new(BTreeMap::new());
-static IRQ_HOOKS: SpinLock<Vec<irq::IrqHandler>, LocalIrqDisabled> = SpinLock::new(Vec::new());
 
 static MEMORY_ALLOCS: SpinLock<BTreeMap<usize, HostMemory>, LocalIrqDisabled> =
     SpinLock::new(BTreeMap::new());
@@ -577,10 +575,6 @@ impl irq::IrqIf for IrqIfImpl {
         if let Some(handler) = IRQ_HANDLERS.lock().get(&vector).copied() {
             handler(vector);
         }
-
-        for hook in IRQ_HOOKS.lock().iter().copied() {
-            hook(vector);
-        }
     }
 
     fn register_irq_handler(vector: usize, handler: irq::IrqHandler) -> bool {
@@ -589,18 +583,6 @@ impl irq::IrqIf for IrqIfImpl {
             return false;
         }
         handlers.insert(vector, handler);
-        true
-    }
-
-    fn register_irq_hook(hook: irq::IrqHandler) -> bool {
-        let mut hooks = IRQ_HOOKS.lock();
-        if hooks
-            .iter()
-            .any(|registered| *registered as usize == hook as usize)
-        {
-            return false;
-        }
-        hooks.push(hook);
         true
     }
 }
