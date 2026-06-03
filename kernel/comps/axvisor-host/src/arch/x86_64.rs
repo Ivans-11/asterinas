@@ -3,7 +3,8 @@
 use axvisor_api::{
     arch::CacheOp,
     memory::{PhysAddr, VirtAddr},
-    time, vmm,
+    time,
+    types::InterruptVector,
 };
 
 pub(crate) fn prepare_virtualization() {}
@@ -18,7 +19,7 @@ pub(crate) fn get_host_fdt_ptr() -> Option<PhysAddr> {
     None
 }
 
-pub(crate) fn inject_virtual_interrupt(vector: vmm::InterruptVector) {
+pub(crate) fn inject_virtual_interrupt(vector: InterruptVector) {
     axvisor_core::arch::x86_64::inject_interrupt(vector);
 }
 

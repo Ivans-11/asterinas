@@ -29,7 +29,8 @@ use axvisor_api::{
     arch::{self as api_arch, CacheOp},
     console, host, irq,
     memory::{self, PhysAddr, VirtAddr},
-    platform, process, task, time, vmm,
+    platform, process, task, time,
+    types::{InterruptVector, VCpuId, VMId},
 };
 use ostd::{
     cpu::{CpuId, CpuSet, all_cpus},
@@ -52,7 +53,6 @@ struct ProcessIfImpl;
 struct TaskIfImpl;
 struct IrqIfImpl;
 struct MemoryIfImpl;
-struct VmmIfImpl;
 struct ArchIfImpl;
 
 const NANOS_PER_SEC: u128 = 1_000_000_000;
@@ -90,12 +90,12 @@ static CONSOLE_INPUT: ConsoleInput = ConsoleInput::new();
 
 #[derive(Clone, Copy, Debug)]
 struct VCpuTaskContext {
-    vm_id: vmm::VMId,
-    vcpu_id: vmm::VCpuId,
+    vm_id: VMId,
+    vcpu_id: VCpuId,
 }
 
 impl VCpuTaskContext {
-    const fn new(vm_id: vmm::VMId, vcpu_id: vmm::VCpuId) -> Self {
+    const fn new(vm_id: VMId, vcpu_id: VCpuId) -> Self {
         Self { vm_id, vcpu_id }
     }
 }
@@ -506,8 +506,8 @@ impl task::TaskIf for TaskIfImpl {
     }
 
     fn spawn_vcpu_task_raw(
-        vm_id: vmm::VMId,
-        vcpu_id: vmm::VCpuId,
+        vm_id: VMId,
+        vcpu_id: VCpuId,
         phys_cpu_set: Option<usize>,
         _stack_size: usize,
         entry: Box<dyn FnOnce() + Send + 'static>,
@@ -556,6 +556,14 @@ impl task::TaskIf for TaskIfImpl {
         entry.completion.wait();
         TASKS.lock().remove(&task.as_raw());
         0
+    }
+
+    fn current_vm_id() -> VMId {
+        current_vcpu_context().vm_id
+    }
+
+    fn current_vcpu_id() -> VCpuId {
+        current_vcpu_context().vcpu_id
     }
 }
 
@@ -616,51 +624,8 @@ impl memory::MemoryIf for MemoryIfImpl {
 }
 
 #[api_impl]
-impl vmm::VmmIf for VmmIfImpl {
-    fn current_vm_id() -> vmm::VMId {
-        current_vcpu_context().vm_id
-    }
-
-    fn current_vcpu_id() -> vmm::VCpuId {
-        current_vcpu_context().vcpu_id
-    }
-
-    fn vcpu_num(vm_id: vmm::VMId) -> Option<usize> {
-        axvisor_core::vmm::with_vm(vm_id, |vm| vm.vcpu_num())
-    }
-
-    fn active_vcpus(vm_id: vmm::VMId) -> Option<usize> {
-        Self::vcpu_num(vm_id).map(|vcpu_num| {
-            if vcpu_num >= usize::BITS as usize {
-                usize::MAX
-            } else {
-                (1usize << vcpu_num) - 1
-            }
-        })
-    }
-
-    fn inject_interrupt(vm_id: vmm::VMId, vcpu_id: vmm::VCpuId, vector: vmm::InterruptVector) {
-        let _ = axvisor_core::vmm::with_vm_and_vcpu_on_pcpu(vm_id, vcpu_id, move |_, vcpu| {
-            vcpu.inject_interrupt(vector as usize).unwrap();
-        });
-    }
-
-    fn inject_interrupt_to_cpus(
-        vm_id: vmm::VMId,
-        vcpu_set: vmm::VCpuSet,
-        vector: vmm::InterruptVector,
-    ) {
-        for vcpu_id in &vcpu_set {
-            Self::inject_interrupt(vm_id, vcpu_id, vector);
-        }
-    }
-
-    fn notify_vcpu_timer_expired(_vm_id: vmm::VMId, _vcpu_id: vmm::VCpuId) {}
-}
-
-#[api_impl]
 impl api_arch::ArchIf for ArchIfImpl {
-    fn inject_virtual_interrupt(vector: vmm::InterruptVector) {
+    fn inject_virtual_interrupt(vector: InterruptVector) {
         arch::inject_virtual_interrupt(vector);
     }
 
