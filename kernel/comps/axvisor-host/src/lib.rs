@@ -16,7 +16,6 @@ use alloc::{
     string::String,
     sync::Arc,
     vec,
-    vec::Vec,
 };
 use core::{
     any::Any,
@@ -24,11 +23,11 @@ use core::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use ax_errno::{AxResult, ax_err_type};
+use ax_errno::AxResult;
 use axvisor_api::{
     api_impl,
     arch::{self as api_arch, CacheOp},
-    console, fs, host, irq,
+    console, host, irq,
     memory::{self, PhysAddr, VirtAddr},
     platform, process, task, time, vmm,
 };
@@ -55,7 +54,6 @@ struct IrqIfImpl;
 struct MemoryIfImpl;
 struct VmmIfImpl;
 struct ArchIfImpl;
-struct FsIfImpl;
 
 const NANOS_PER_SEC: u128 = 1_000_000_000;
 #[cfg(target_arch = "riscv64")]
@@ -668,109 +666,6 @@ impl api_arch::ArchIf for ArchIfImpl {
 
     fn dcache_range(op: CacheOp, addr: VirtAddr, size: usize) {
         arch::dcache_range(op, addr, size)
-    }
-}
-
-#[api_impl]
-impl fs::FsIf for FsIfImpl {
-    fn open_file(_path: &str) -> AxResult<usize> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn create_file(_path: &str) -> AxResult<usize> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn close_file(_file: usize) {}
-
-    fn file_metadata(_file: usize) -> AxResult<fs::Metadata> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn file_read(_file: usize, _buf: &mut [u8]) -> AxResult<usize> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn file_write(_file: usize, _buf: &[u8]) -> AxResult<usize> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn file_flush(_file: usize) -> AxResult<()> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn path_metadata(_path: &str) -> AxResult<fs::Metadata> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn fs_read_dir(_path: &str) -> AxResult<Vec<fs::DirEntry>> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn fs_create_dir(_path: &str) -> AxResult<()> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn fs_remove_dir(_path: &str) -> AxResult<()> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn fs_remove_file(_path: &str) -> AxResult<()> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn fs_rename(_from: &str, _to: &str) -> AxResult<()> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn fs_current_dir() -> AxResult<String> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn fs_set_current_dir(_path: &str) -> AxResult<()> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
     }
 }
 
