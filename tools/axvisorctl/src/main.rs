@@ -22,6 +22,7 @@ use regex::Regex;
 
 const MATCH_DRAIN_DURATION: Duration = Duration::from_millis(500);
 const MAX_MATCH_WINDOW_BYTES: usize = 2048;
+const AXVISOR_X86_ACCEL: &str = "AXVISOR_X86_ACCEL";
 
 #[derive(Parser)]
 #[command(name = "axvisorctl")]
@@ -257,7 +258,9 @@ fn run_command(workspace: &Workspace, args: RunArgs) -> Result<()> {
             features: case.features.clone(),
             rendered_qemu_args: case.rendered_qemu_args.clone(),
         }),
-        None => case::resolve_host(&workspace.root, arch)?.map(stage_host_launch),
+        None => case::resolve_host(&workspace.root, arch)?
+            .map(|host| stage_host_launch(arch, host))
+            .transpose()?,
     };
     let mut invocation = build_osdk_command(
         workspace,
@@ -373,10 +376,11 @@ fn stage_case(workspace: &Workspace, arch: Option<Arch>, guest: &str) -> Result<
         )
     })?;
 
-    let features = merge_features(
+    let mut features = merge_features(
         &loaded.host.manifest.features,
         &loaded.manifest.extra_features,
     );
+    apply_arch_features(loaded.manifest.arch, &mut features)?;
     let rendered_qemu_args = loaded
         .host
         .manifest
@@ -804,12 +808,68 @@ fn render_case_token(
         .replace("{workspace_root}", &workspace_root.to_string_lossy())
 }
 
-fn stage_host_launch(host: LoadedHost) -> HostLaunchConfig {
-    HostLaunchConfig {
+fn stage_host_launch(arch: Arch, host: LoadedHost) -> Result<HostLaunchConfig> {
+    let mut features = host.manifest.features;
+    apply_arch_features(arch, &mut features)?;
+    Ok(HostLaunchConfig {
         scheme: host.manifest.scheme,
-        features: host.manifest.features,
+        features,
         rendered_qemu_args: host.manifest.host_qemu_args,
+    })
+}
+
+fn apply_arch_features(arch: Arch, features: &mut Vec<String>) -> Result<()> {
+    if arch != Arch::X86_64 {
+        return Ok(());
     }
+    let feature = resolve_x86_accel_feature()?;
+    let opposite = match feature {
+        "vmx" => "svm",
+        "svm" => "vmx",
+        _ => unreachable!(),
+    };
+    if features.iter().any(|existing| existing == opposite) {
+        bail!(
+            "{AXVISOR_X86_ACCEL} selected `{feature}`, but features already contain `{opposite}`"
+        );
+    }
+    if !features.iter().any(|existing| existing == feature) {
+        features.push(feature.to_string());
+    }
+    println!("[axvisorctl] x86 virtualization backend: {feature}");
+    Ok(())
+}
+
+fn resolve_x86_accel_feature() -> Result<&'static str> {
+    match env::var(AXVISOR_X86_ACCEL)
+        .unwrap_or_else(|_| "auto".to_string())
+        .trim()
+    {
+        "" | "auto" => detect_x86_accel_feature(),
+        "vmx" => Ok("vmx"),
+        "svm" => Ok("svm"),
+        value => {
+            bail!("invalid {AXVISOR_X86_ACCEL} value `{value}`; expected `auto`, `vmx`, or `svm`")
+        }
+    }
+}
+
+fn detect_x86_accel_feature() -> Result<&'static str> {
+    let cpuinfo = fs::read_to_string("/proc/cpuinfo").context("failed to read /proc/cpuinfo")?;
+    if cpuinfo_has_flag(&cpuinfo, "vmx") {
+        Ok("vmx")
+    } else if cpuinfo_has_flag(&cpuinfo, "svm") {
+        Ok("svm")
+    } else {
+        bail!("x86 CPU does not advertise VMX or SVM; set {AXVISOR_X86_ACCEL}=vmx or svm to force")
+    }
+}
+
+fn cpuinfo_has_flag(cpuinfo: &str, flag: &str) -> bool {
+    cpuinfo.lines().any(|line| {
+        line.split_once(':')
+            .is_some_and(|(_, value)| value.split_whitespace().any(|word| word == flag))
+    })
 }
 
 fn merge_features(base: &[String], extra: &[String]) -> Vec<String> {

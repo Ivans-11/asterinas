@@ -85,6 +85,7 @@ loongArch64 = "0.2.5"
 default = ["cvm_guest"]
 axvisor = ["dep:aster-axvisor-host"]
 vmx = ["axvisor", "aster-axvisor-host/vmx"]
+svm = ["axvisor", "aster-axvisor-host/svm"]
 sstc = ["axvisor", "aster-axvisor-host/sstc"]
 coverage = ["ostd/coverage"]
 cvm_guest = ["dep:tdx-guest", "ostd/cvm_guest", "aster-virtio/cvm_guest"]

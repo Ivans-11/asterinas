@@ -32,8 +32,26 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: Enable KVM for x86 Axvisor
+        if: matrix.arch == 'x86_64'
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::/dev/kvm is not available on this runner"
+            exit 1
+          fi
+          groupadd -f kvm
+          chgrp kvm /dev/kvm || true
+          chmod g+rw /dev/kvm || true
+          usermod -aG kvm "$(id -un)"
+          ls -l /dev/kvm
+
       - name: Run Axvisor test (${{ matrix.arch }}/${{ matrix.guest }})
-        run: ./tools/axvisor test --arch "${{ matrix.arch }}" --guest "${{ matrix.guest }}"
+        run: |
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            sg kvm -c "./tools/axvisor test --arch '${{ matrix.arch }}' --guest '${{ matrix.guest }}'"
+          else
+            ./tools/axvisor test --arch "${{ matrix.arch }}" --guest "${{ matrix.guest }}"
+          fi
 
       - name: Upload Axvisor logs
         if: always()
