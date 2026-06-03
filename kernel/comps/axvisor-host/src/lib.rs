@@ -26,7 +26,6 @@ use axvisor_api::{
     console, host, irq,
     memory::{self, PhysAddr, VirtAddr},
     sync, task, time,
-    types::InterruptVector,
 };
 #[cfg(feature = "shell")]
 use ostd::power::ExitCode;
@@ -437,17 +436,20 @@ impl task::TaskIf for TaskIfImpl {
 
 #[api_impl]
 impl irq::IrqIf for IrqIfImpl {
-    fn handle_irq(vector: usize) {
+    fn handle_irq(vector: usize) -> bool {
         #[cfg(target_arch = "riscv64")]
         if vector == RISCV_S_EXT_VECTOR {
             ostd::arch::irq::for_each_pending_external_interrupt(|irq_id| {
                 axvisor_core::arch::riscv64::inject_current_interrupt(irq_id);
             });
+            return true;
         }
 
         if let Some(handler) = IRQ_HANDLERS.lock().get(&vector).copied() {
             handler(vector);
+            return true;
         }
+        false
     }
 
     fn register_irq_handler(vector: usize, handler: irq::IrqHandler) -> bool {
@@ -493,10 +495,6 @@ impl memory::MemoryIf for MemoryIfImpl {
 
 #[api_impl]
 impl api_arch::ArchIf for ArchIfImpl {
-    fn inject_virtual_interrupt(vector: InterruptVector) {
-        arch::inject_virtual_interrupt(vector);
-    }
-
     fn dcache_range(op: CacheOp, addr: VirtAddr, size: usize) {
         arch::dcache_range(op, addr, size)
     }

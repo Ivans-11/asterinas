@@ -10,8 +10,7 @@ use ostd::mm::paddr_to_vaddr;
 mod imp;
 
 pub(crate) use imp::{
-    dcache_range, host_fdt_paddr, init_percpu, inject_virtual_interrupt, prepare_virtualization,
-    set_oneshot_timer,
+    dcache_range, host_fdt_paddr, init_percpu, prepare_virtualization, set_oneshot_timer,
 };
 
 pub(crate) fn linear_mapping_virt_to_phys(addr: usize) -> PhysAddr {

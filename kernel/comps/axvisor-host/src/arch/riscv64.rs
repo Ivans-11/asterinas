@@ -4,7 +4,6 @@ use axvisor_api::{
     arch::CacheOp,
     memory::{PhysAddr, VirtAddr},
     time,
-    types::InterruptVector,
 };
 use ostd::{arch::boot::DEVICE_TREE_PADDR, timer};
 
@@ -44,10 +43,6 @@ fn nanos_to_ticks(nanos: u64) -> u64 {
 
 pub(crate) fn host_fdt_paddr() -> Option<PhysAddr> {
     DEVICE_TREE_PADDR.get().copied().map(PhysAddr::from_usize)
-}
-
-pub(crate) fn inject_virtual_interrupt(vector: InterruptVector) {
-    axvisor_core::arch::riscv64::inject_current_interrupt(vector as usize);
 }
 
 pub(crate) fn dcache_range(_op: CacheOp, _addr: VirtAddr, _size: usize) {}
