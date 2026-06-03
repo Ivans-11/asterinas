@@ -1,0 +1,44 @@
+name: "Test Axvisor"
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+
+jobs:
+  axvisor-test:
+    runs-on: ubuntu-latest
+    container:
+      image: asterinas/asterinas:0.17.2-20260523
+      options: -v /dev:/dev --privileged
+      volumes:
+        - /usr/lib/google-cloud-sdk:/usr/lib/google-cloud-sdk
+        - /usr/local/lib/android:/usr/local/lib/android
+        - /usr/share/dotnet:/usr/share/dotnet
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            guest: nimbos
+          - arch: riscv64
+            guest: arceos
+          - arch: riscv64
+            guest: linux
+    steps:
+      - name: Free disk space
+        run: rm -rf /usr/lib/google-cloud-sdk/* /usr/local/lib/android/* /usr/share/dotnet/*
+
+      - uses: actions/checkout@v4
+
+      - name: Run Axvisor test (${{ matrix.arch }}/${{ matrix.guest }})
+        run: ./tools/axvisor test --arch "${{ matrix.arch }}" --guest "${{ matrix.guest }}"
+
+      - name: Upload Axvisor logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: axvisor-logs-${{ matrix.arch }}-${{ matrix.guest }}
+          path: target/axvisor/logs/
+          if-no-files-found: ignore

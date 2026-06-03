@@ -16,6 +16,7 @@ use alloc::{
     string::String,
     sync::Arc,
     vec,
+    vec::Vec,
 };
 use core::{
     any::Any,
@@ -56,8 +57,6 @@ struct VmmIfImpl;
 struct ArchIfImpl;
 struct FsIfImpl;
 
-const STDIN_HANDLE: usize = 0;
-const STDOUT_HANDLE: usize = 1;
 const NANOS_PER_SEC: u128 = 1_000_000_000;
 #[cfg(target_arch = "riscv64")]
 const RISCV_S_EXT_VECTOR: usize = (1usize << (usize::BITS - 1)) + 9;
@@ -690,49 +689,32 @@ impl fs::FsIf for FsIfImpl {
 
     fn close_file(_file: usize) {}
 
-    fn file_metadata(file: usize) -> AxResult<fs::Metadata> {
-        match file {
-            STDIN_HANDLE | STDOUT_HANDLE => Ok(fs::Metadata::new(0, fs::FileType::Other, 0o666)),
-            _ => Err(ax_err_type!(
-                Unsupported,
-                "filesystem support is not wired to Asterinas yet"
-            )),
-        }
+    fn file_metadata(_file: usize) -> AxResult<fs::Metadata> {
+        Err(ax_err_type!(
+            Unsupported,
+            "filesystem support is not wired to Asterinas yet"
+        ))
     }
 
-    fn file_read(file: usize, buf: &mut [u8]) -> AxResult<usize> {
-        match file {
-            STDIN_HANDLE => Ok(read_console_bytes(buf)),
-            STDOUT_HANDLE => Err(ax_err_type!(Unsupported, "stdout is not readable")),
-            _ => Err(ax_err_type!(
-                Unsupported,
-                "filesystem support is not wired to Asterinas yet"
-            )),
-        }
+    fn file_read(_file: usize, _buf: &mut [u8]) -> AxResult<usize> {
+        Err(ax_err_type!(
+            Unsupported,
+            "filesystem support is not wired to Asterinas yet"
+        ))
     }
 
-    fn file_write(file: usize, buf: &[u8]) -> AxResult<usize> {
-        match file {
-            STDOUT_HANDLE => {
-                console::write_bytes(buf);
-                Ok(buf.len())
-            }
-            STDIN_HANDLE => Err(ax_err_type!(Unsupported, "stdin is not writable")),
-            _ => Err(ax_err_type!(
-                Unsupported,
-                "filesystem support is not wired to Asterinas yet"
-            )),
-        }
+    fn file_write(_file: usize, _buf: &[u8]) -> AxResult<usize> {
+        Err(ax_err_type!(
+            Unsupported,
+            "filesystem support is not wired to Asterinas yet"
+        ))
     }
 
-    fn file_flush(file: usize) -> AxResult<()> {
-        match file {
-            STDIN_HANDLE | STDOUT_HANDLE => Ok(()),
-            _ => Err(ax_err_type!(
-                Unsupported,
-                "filesystem support is not wired to Asterinas yet"
-            )),
-        }
+    fn file_flush(_file: usize) -> AxResult<()> {
+        Err(ax_err_type!(
+            Unsupported,
+            "filesystem support is not wired to Asterinas yet"
+        ))
     }
 
     fn path_metadata(_path: &str) -> AxResult<fs::Metadata> {
@@ -742,23 +724,7 @@ impl fs::FsIf for FsIfImpl {
         ))
     }
 
-    fn open_read_dir(_path: &str) -> AxResult<usize> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn read_dir_next(_dir: usize) -> AxResult<Option<fs::DirEntry>> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn close_read_dir(_dir: usize) {}
-
-    fn fs_read_to_string(_path: &str) -> AxResult<String> {
+    fn fs_read_dir(_path: &str) -> AxResult<Vec<fs::DirEntry>> {
         Err(ax_err_type!(
             Unsupported,
             "filesystem support is not wired to Asterinas yet"
@@ -766,13 +732,6 @@ impl fs::FsIf for FsIfImpl {
     }
 
     fn fs_create_dir(_path: &str) -> AxResult<()> {
-        Err(ax_err_type!(
-            Unsupported,
-            "filesystem support is not wired to Asterinas yet"
-        ))
-    }
-
-    fn fs_create_dir_all(_path: &str) -> AxResult<()> {
         Err(ax_err_type!(
             Unsupported,
             "filesystem support is not wired to Asterinas yet"
