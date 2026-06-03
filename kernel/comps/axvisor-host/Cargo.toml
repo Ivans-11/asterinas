@@ -5,6 +5,7 @@ edition.workspace = true
 
 [features]
 default = []
+shell = ["axvisor_api/shell", "axvisor_core/shell"]
 vmx = ["axvisor_core/vmx"]
 svm = ["axvisor_core/svm"]
 sstc = ["axvisor_core/sstc"]
@@ -15,7 +16,7 @@ aster-logger.workspace = true
 aster-time.workspace = true
 ax-percpu = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core", features = ["custom-base"] }
 ax-errno = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core" }
-axvisor_api = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core" }
+axvisor_api = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core", default-features = false }
 axvisor_core = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core", default-features = false }
 ostd.workspace = true
 spin.workspace = true

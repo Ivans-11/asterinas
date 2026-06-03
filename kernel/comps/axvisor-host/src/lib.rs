@@ -29,16 +29,17 @@ use axvisor_api::{
     arch::{self as api_arch, CacheOp},
     console, host, irq,
     memory::{self, PhysAddr, VirtAddr},
-    platform, process, task, time,
+    platform, task, time,
     types::{InterruptVector, VCpuId, VMId},
 };
+#[cfg(feature = "shell")]
+use ostd::power::ExitCode;
 use ostd::{
     cpu::{CpuId, CpuSet, all_cpus},
     mm::{
         Frame, FrameAllocOptions, HasPaddr, HasSize, Infallible, PAGE_SIZE, Segment, Split,
         VmReader, VmWriter, paddr_to_vaddr,
     },
-    power::ExitCode,
     sync::{LocalIrqDisabled, SpinLock, WaitQueue, Waiter},
     task::Task,
     util::id_set::Id,
@@ -49,7 +50,6 @@ struct HostIfImpl;
 struct ConsoleIfImpl;
 struct TimeIfImpl;
 struct PlatformIfImpl;
-struct ProcessIfImpl;
 struct TaskIfImpl;
 struct IrqIfImpl;
 struct MemoryIfImpl;
@@ -343,6 +343,16 @@ impl host::HostIf for HostIfImpl {
     fn yield_now() {
         Task::yield_now()
     }
+
+    #[cfg(feature = "shell")]
+    fn exit(exit_code: i32) -> ! {
+        let code = if exit_code == 0 {
+            ExitCode::Success
+        } else {
+            ExitCode::Failure
+        };
+        ostd::power::poweroff(code)
+    }
 }
 
 #[api_impl]
@@ -385,18 +395,6 @@ impl platform::PlatformIf for PlatformIfImpl {
 
     fn shutdown_host_filesystems() -> AxResult<()> {
         Ok(())
-    }
-}
-
-#[api_impl]
-impl process::ProcessIf for ProcessIfImpl {
-    fn exit(exit_code: i32) -> ! {
-        let code = if exit_code == 0 {
-            ExitCode::Success
-        } else {
-            ExitCode::Failure
-        };
-        ostd::power::poweroff(code)
     }
 }
 
