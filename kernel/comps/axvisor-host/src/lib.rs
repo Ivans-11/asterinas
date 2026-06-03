@@ -25,7 +25,7 @@ use axvisor_api::{
     arch::{self as api_arch, CacheOp},
     console, host, irq,
     memory::{self, PhysAddr, VirtAddr},
-    task, time,
+    sync, task, time,
     types::InterruptVector,
 };
 #[cfg(feature = "shell")]
@@ -45,6 +45,7 @@ use spin::Once;
 struct HostIfImpl;
 struct ConsoleIfImpl;
 struct TimeIfImpl;
+struct SyncIfImpl;
 struct TaskIfImpl;
 struct IrqIfImpl;
 struct MemoryIfImpl;
@@ -352,7 +353,7 @@ impl time::TimeIf for TimeIfImpl {
 }
 
 #[api_impl]
-impl task::TaskIf for TaskIfImpl {
+impl sync::SyncIf for SyncIfImpl {
     fn create_wait_queue() -> usize {
         let id = WAIT_QUEUE_IDS.fetch_add(1, Ordering::Relaxed);
         WAIT_QUEUES.lock().insert(id, Arc::new(WaitQueue::new()));
@@ -374,20 +375,17 @@ impl task::TaskIf for TaskIfImpl {
         get_wait_queue(queue).wait_until(|| condition().then_some(()));
     }
 
-    fn wait_queue_wake(queue: usize, count: u32) {
-        let queue = get_wait_queue(queue);
-        if count == u32::MAX {
-            queue.wake_all();
-            return;
-        }
-
-        for _ in 0..count {
-            if !queue.wake_one() {
-                break;
-            }
-        }
+    fn wait_queue_wake_one(queue: usize) {
+        get_wait_queue(queue).wake_one();
     }
 
+    fn wait_queue_wake_all(queue: usize) {
+        get_wait_queue(queue).wake_all();
+    }
+}
+
+#[api_impl]
+impl task::TaskIf for TaskIfImpl {
     fn spawn_task_raw(
         options: task::TaskOptions,
         entry: Box<dyn FnOnce() + Send + 'static>,
