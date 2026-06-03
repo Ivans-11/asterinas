@@ -55,7 +55,6 @@ struct IrqIfImpl;
 struct MemoryIfImpl;
 struct ArchIfImpl;
 
-const NANOS_PER_SEC: u128 = 1_000_000_000;
 #[cfg(target_arch = "riscv64")]
 const RISCV_S_EXT_VECTOR: usize = (1usize << (usize::BITS - 1)) + 9;
 
@@ -221,46 +220,6 @@ fn read_console_bytes(buf: &mut [u8]) -> usize {
     })
 }
 
-#[cfg(any(
-    target_arch = "x86_64",
-    target_arch = "riscv64",
-    target_arch = "loongarch64"
-))]
-fn host_tick_frequency() -> u64 {
-    ostd::arch::tsc_freq()
-}
-
-#[cfg(target_arch = "aarch64")]
-fn host_tick_frequency() -> u64 {
-    1_000_000_000
-}
-
-pub(crate) fn host_current_ticks() -> u64 {
-    #[cfg(any(
-        target_arch = "x86_64",
-        target_arch = "riscv64",
-        target_arch = "loongarch64"
-    ))]
-    {
-        return ostd::arch::read_tsc();
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    {
-        aster_time::read_monotonic_time().as_nanos() as u64
-    }
-}
-
-pub(crate) fn host_ticks_to_nanos(ticks: u64) -> u64 {
-    let freq = host_tick_frequency() as u128;
-    (((ticks as u128) * NANOS_PER_SEC) / freq).min(u64::MAX as u128) as u64
-}
-
-pub(crate) fn host_nanos_to_ticks(nanos: u64) -> u64 {
-    let freq = host_tick_frequency() as u128;
-    (((nanos as u128) * freq) / NANOS_PER_SEC).min(u64::MAX as u128) as u64
-}
-
 fn current_vcpu_context() -> VCpuTaskContext {
     let task = Task::current().expect("current VM/vCPU context requested outside of a task");
     *task
@@ -409,35 +368,8 @@ impl console::ConsoleIf for ConsoleIfImpl {
 
 #[api_impl]
 impl time::TimeIf for TimeIfImpl {
-    fn current_ticks() -> time::Ticks {
-        host_current_ticks()
-    }
-
-    fn ticks_to_nanos(ticks: time::Ticks) -> time::Nanos {
-        host_ticks_to_nanos(ticks)
-    }
-
-    fn nanos_to_ticks(nanos: time::Nanos) -> time::Ticks {
-        host_nanos_to_ticks(nanos)
-    }
-
-    fn register_timer(
-        deadline: time::TimeValue,
-        callback: Box<dyn FnOnce(time::TimeValue) + Send + 'static>,
-    ) -> time::CancelToken {
-        axvisor_core::vmm::timer::register_timer(deadline.as_nanos() as u64, callback)
-    }
-
-    fn cancel_timer(token: time::CancelToken) {
-        axvisor_core::vmm::timer::cancel_timer(token)
-    }
-
-    fn busy_wait(duration: time::TimeValue) {
-        let start = host_current_ticks();
-        let wait_ticks = host_nanos_to_ticks(duration.as_nanos() as u64);
-        while host_current_ticks().wrapping_sub(start) < wait_ticks {
-            core::hint::spin_loop();
-        }
+    fn current_time_nanos() -> time::Nanos {
+        aster_time::read_monotonic_time().as_nanos() as u64
     }
 
     fn set_oneshot_timer(deadline: time::TimeValue) {
@@ -631,6 +563,13 @@ impl api_arch::ArchIf for ArchIfImpl {
 
     fn dcache_range(op: CacheOp, addr: VirtAddr, size: usize) {
         arch::dcache_range(op, addr, size)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn host_tsc_frequency_mhz() -> Option<u32> {
+        u32::try_from(ostd::arch::tsc_freq() / 1_000_000)
+            .ok()
+            .filter(|&freq| freq > 0)
     }
 }
 

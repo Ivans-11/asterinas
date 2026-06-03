@@ -9,6 +9,7 @@ use axvisor_api::{
 use ostd::{arch::boot::DEVICE_TREE_PADDR, timer};
 
 const NO_DEADLINE_TICKS: u64 = u64::MAX;
+const NANOS_PER_SEC: u128 = 1_000_000_000;
 
 #[ax_percpu::def_percpu]
 static TIMER_DEADLINE_TICKS: u64 = NO_DEADLINE_TICKS;
@@ -22,7 +23,7 @@ pub(crate) fn init_percpu() {
             return;
         }
 
-        let now_ticks = crate::host_current_ticks();
+        let now_ticks = ostd::arch::read_tsc();
         if now_ticks < deadline {
             return;
         }
@@ -33,7 +34,12 @@ pub(crate) fn init_percpu() {
 }
 
 pub(crate) fn set_oneshot_timer(deadline: time::TimeValue) {
-    TIMER_DEADLINE_TICKS.write_current(crate::host_nanos_to_ticks(deadline.as_nanos() as u64));
+    TIMER_DEADLINE_TICKS.write_current(nanos_to_ticks(deadline.as_nanos() as u64));
+}
+
+fn nanos_to_ticks(nanos: u64) -> u64 {
+    let freq = ostd::arch::tsc_freq() as u128;
+    (((nanos as u128) * freq) / NANOS_PER_SEC).min(u64::MAX as u128) as u64
 }
 
 pub(crate) fn get_host_fdt_ptr() -> Option<PhysAddr> {
