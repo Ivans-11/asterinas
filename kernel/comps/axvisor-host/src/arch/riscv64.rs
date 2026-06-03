@@ -42,7 +42,7 @@ fn nanos_to_ticks(nanos: u64) -> u64 {
     (((nanos as u128) * freq) / NANOS_PER_SEC).min(u64::MAX as u128) as u64
 }
 
-pub(crate) fn get_host_fdt_ptr() -> Option<PhysAddr> {
+pub(crate) fn host_fdt_paddr() -> Option<PhysAddr> {
     DEVICE_TREE_PADDR.get().copied().map(PhysAddr::from_usize)
 }
 

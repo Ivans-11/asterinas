@@ -15,7 +15,7 @@ pub(crate) fn set_oneshot_timer(_deadline: time::TimeValue) {
     // Asterinas does not yet provide an aarch64 Axvisor host runtime.
 }
 
-pub(crate) fn get_host_fdt_ptr() -> Option<PhysAddr> {
+pub(crate) fn host_fdt_paddr() -> Option<PhysAddr> {
     None
 }
 

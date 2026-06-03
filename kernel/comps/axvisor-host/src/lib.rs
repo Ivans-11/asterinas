@@ -23,13 +23,12 @@ use core::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use ax_errno::AxResult;
 use axvisor_api::{
     api_impl,
     arch::{self as api_arch, CacheOp},
     console, host, irq,
     memory::{self, PhysAddr, VirtAddr},
-    platform, task, time,
+    task, time,
     types::{InterruptVector, VCpuId, VMId},
 };
 #[cfg(feature = "shell")]
@@ -49,7 +48,6 @@ use spin::Once;
 struct HostIfImpl;
 struct ConsoleIfImpl;
 struct TimeIfImpl;
-struct PlatformIfImpl;
 struct TaskIfImpl;
 struct IrqIfImpl;
 struct MemoryIfImpl;
@@ -388,17 +386,6 @@ impl time::TimeIf for TimeIfImpl {
 }
 
 #[api_impl]
-impl platform::PlatformIf for PlatformIfImpl {
-    fn get_host_fdt_ptr() -> Option<PhysAddr> {
-        arch::get_host_fdt_ptr()
-    }
-
-    fn shutdown_host_filesystems() -> AxResult<()> {
-        Ok(())
-    }
-}
-
-#[api_impl]
 impl task::TaskIf for TaskIfImpl {
     fn create_wait_queue() -> usize {
         let id = WAIT_QUEUE_IDS.fetch_add(1, Ordering::Relaxed);
@@ -561,6 +548,10 @@ impl api_arch::ArchIf for ArchIfImpl {
 
     fn dcache_range(op: CacheOp, addr: VirtAddr, size: usize) {
         arch::dcache_range(op, addr, size)
+    }
+
+    fn host_fdt_paddr() -> Option<PhysAddr> {
+        arch::host_fdt_paddr()
     }
 
     #[cfg(target_arch = "x86_64")]

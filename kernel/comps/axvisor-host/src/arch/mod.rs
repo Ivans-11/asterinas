@@ -10,7 +10,7 @@ use ostd::mm::paddr_to_vaddr;
 mod imp;
 
 pub(crate) use imp::{
-    dcache_range, get_host_fdt_ptr, init_percpu, inject_virtual_interrupt, prepare_virtualization,
+    dcache_range, host_fdt_paddr, init_percpu, inject_virtual_interrupt, prepare_virtualization,
     set_oneshot_timer,
 };
 
