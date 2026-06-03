@@ -18,7 +18,6 @@ struct KernelThread;
 pub struct ThreadOptions {
     func: Option<Box<dyn FnOnce() + Send>>,
     cpu_affinity: CpuSet,
-    local_data: Option<Box<dyn Any + Send>>,
     sched_policy: SchedPolicy,
 }
 
@@ -33,7 +32,6 @@ impl ThreadOptions {
         Self {
             func: Some(Box::new(func)),
             cpu_affinity,
-            local_data: None,
             sched_policy,
         }
     }
@@ -49,19 +47,12 @@ impl ThreadOptions {
         self.sched_policy = sched_policy;
         self
     }
-
-    /// Sets task-local data for the new kernel thread from an existing boxed value.
-    pub fn local_data_raw(mut self, data: Box<dyn Any + Send>) -> Self {
-        self.local_data = Some(data);
-        self
-    }
 }
 
 impl ThreadOptions {
     /// Builds a new kernel thread without running it immediately.
     pub fn build(mut self) -> Arc<Task> {
         let task_fn = self.func.take().unwrap();
-        let local_data = self.local_data.take();
         let thread_fn = move || {
             let _ = oops::catch_panics_as_oops(task_fn);
             // Ensure that the thread exits.
@@ -81,13 +72,7 @@ impl ThreadOptions {
                 ))
             };
 
-            let options = TaskOptions::new(thread_fn).data(thread);
-            let options = if let Some(local_data) = local_data {
-                options.local_data_raw(local_data)
-            } else {
-                options
-            };
-            options.build().unwrap()
+            TaskOptions::new(thread_fn).data(thread).build().unwrap()
         })
     }
 

@@ -180,12 +180,6 @@ impl TaskOptions {
         self
     }
 
-    /// Sets the local data associated with the task from an existing boxed value.
-    pub fn local_data_raw(mut self, data: Box<dyn Any + Send>) -> Self {
-        self.local_data = Some(data);
-        self
-    }
-
     /// Builds a new task without running it immediately.
     pub fn build(self) -> Result<Task> {
         // All tasks will enter this function. It is meant to execute the `task_fn` in `Task`.

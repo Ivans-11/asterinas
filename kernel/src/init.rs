@@ -31,15 +31,10 @@ impl aster_axvisor_host::KernelTaskRuntime for AxvisorKernelTaskRuntime {
         &self,
         entry: Box<dyn FnOnce() + Send + 'static>,
         cpu_affinity: CpuSet,
-        local_data: Option<Box<dyn Any + Send>>,
     ) -> Arc<Task> {
-        let options = ThreadOptions::new(move || entry()).cpu_affinity(cpu_affinity);
-        let options = if let Some(local_data) = local_data {
-            options.local_data_raw(local_data)
-        } else {
-            options
-        };
-        let task = options.build();
+        let task = ThreadOptions::new(move || entry())
+            .cpu_affinity(cpu_affinity)
+            .build();
         task.run();
         task
     }

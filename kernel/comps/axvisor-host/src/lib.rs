@@ -12,13 +12,10 @@ extern crate alloc;
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, VecDeque},
-    format,
-    string::String,
     sync::Arc,
     vec,
 };
 use core::{
-    any::Any,
     str,
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
@@ -29,7 +26,7 @@ use axvisor_api::{
     console, host, irq,
     memory::{self, PhysAddr, VirtAddr},
     task, time,
-    types::{InterruptVector, VCpuId, VMId},
+    types::InterruptVector,
 };
 #[cfg(feature = "shell")]
 use ostd::power::ExitCode;
@@ -58,12 +55,11 @@ const RISCV_S_EXT_VECTOR: usize = (1usize << (usize::BITS - 1)) + 9;
 
 /// Runtime hook used to spawn proper Asterinas kernel threads for Axvisor.
 pub trait KernelTaskRuntime: Sync {
-    /// Spawns a kernel thread with the requested CPU affinity and optional task-local data.
+    /// Spawns a kernel thread with the requested CPU affinity.
     fn spawn_task(
         &self,
         entry: Box<dyn FnOnce() + Send + 'static>,
         cpu_affinity: CpuSet,
-        local_data: Option<Box<dyn Any + Send>>,
     ) -> Arc<Task>;
 }
 
@@ -84,18 +80,6 @@ static MEMORY_ALLOCS: SpinLock<BTreeMap<usize, HostMemory>, LocalIrqDisabled> =
     SpinLock::new(BTreeMap::new());
 
 static CONSOLE_INPUT: ConsoleInput = ConsoleInput::new();
-
-#[derive(Clone, Copy, Debug)]
-struct VCpuTaskContext {
-    vm_id: VMId,
-    vcpu_id: VCpuId,
-}
-
-impl VCpuTaskContext {
-    const fn new(vm_id: VMId, vcpu_id: VCpuId) -> Self {
-        Self { vm_id, vcpu_id }
-    }
-}
 
 struct TaskCompletion {
     finished: AtomicBool,
@@ -122,7 +106,6 @@ impl TaskCompletion {
 }
 
 struct TaskEntry {
-    name: String,
     task: Arc<Task>,
     completion: Arc<TaskCompletion>,
 }
@@ -218,26 +201,14 @@ fn read_console_bytes(buf: &mut [u8]) -> usize {
     })
 }
 
-fn current_vcpu_context() -> VCpuTaskContext {
-    let task = Task::current().expect("current VM/vCPU context requested outside of a task");
-    *task
-        .local_data()
-        .downcast_ref::<VCpuTaskContext>()
-        .expect("current task is not an Axvisor vCPU task")
-}
-
 fn kernel_task_runtime() -> &'static dyn KernelTaskRuntime {
     *KERNEL_TASK_RUNTIME
         .get()
         .expect("Axvisor kernel task runtime is not installed")
 }
 
-fn spawn_kernel_task(
-    entry: Box<dyn FnOnce() + Send + 'static>,
-    cpu_affinity: CpuSet,
-    local_data: Option<Box<dyn Any + Send>>,
-) -> Arc<Task> {
-    kernel_task_runtime().spawn_task(entry, cpu_affinity, local_data)
+fn spawn_kernel_task(entry: Box<dyn FnOnce() + Send + 'static>, cpu_affinity: CpuSet) -> Arc<Task> {
+    kernel_task_runtime().spawn_task(entry, cpu_affinity)
 }
 
 fn cpu_set_from_mask(mask: usize) -> CpuSet {
@@ -334,12 +305,7 @@ impl host::HostIf for HostIfImpl {
                 task();
             }),
             CpuSet::from(cpu),
-            None,
         );
-    }
-
-    fn yield_now() {
-        Task::yield_now()
     }
 
     #[cfg(feature = "shell")]
@@ -422,65 +388,52 @@ impl task::TaskIf for TaskIfImpl {
         }
     }
 
-    fn spawn_vcpu_task_raw(
-        vm_id: VMId,
-        vcpu_id: VCpuId,
-        phys_cpu_set: Option<usize>,
-        _stack_size: usize,
+    fn spawn_task_raw(
+        options: task::TaskOptions,
         entry: Box<dyn FnOnce() + Send + 'static>,
     ) -> task::TaskHandle {
         let handle = task::TaskHandle::from_raw(TASK_IDS.fetch_add(1, Ordering::Relaxed));
         let completion = Arc::new(TaskCompletion::new());
         let completion_for_task = completion.clone();
-        let name = format!("VM[{vm_id}]-VCpu[{vcpu_id}]");
-        let cpu_affinity = phys_cpu_set.map_or_else(CpuSet::new_full, cpu_set_from_mask);
+        let registered = Arc::new(AtomicBool::new(false));
+        let registered_for_task = registered.clone();
+        let cpu_affinity = options
+            .cpu_set
+            .map_or_else(CpuSet::new_full, cpu_set_from_mask);
 
         let task = spawn_kernel_task(
             Box::new(move || {
+                while !registered_for_task.load(Ordering::Acquire) {
+                    Task::yield_now();
+                }
                 entry();
                 completion_for_task.finish();
             }),
             cpu_affinity,
-            Some(Box::new(VCpuTaskContext::new(vm_id, vcpu_id))),
         );
 
-        TASKS.lock().insert(
-            handle.as_raw(),
-            Arc::new(TaskEntry {
-                name,
-                task,
-                completion,
-            }),
-        );
+        TASKS
+            .lock()
+            .insert(handle.as_raw(), Arc::new(TaskEntry { task, completion }));
+        registered.store(true, Ordering::Release);
         handle
     }
 
-    fn task_id_name(task: task::TaskHandle) -> String {
-        get_task_entry(task).name.clone()
-    }
-
-    fn task_cpu_id(task: task::TaskHandle) -> usize {
-        get_task_entry(task)
-            .task
-            .schedule_info()
-            .cpu
-            .get()
-            .map_or(0, CpuId::as_usize)
-    }
-
-    fn task_join(task: task::TaskHandle) -> i32 {
+    fn join_task(task: task::TaskHandle) {
         let entry = get_task_entry(task);
         entry.completion.wait();
         TASKS.lock().remove(&task.as_raw());
-        0
     }
 
-    fn current_vm_id() -> VMId {
-        current_vcpu_context().vm_id
+    fn current_task() -> Option<task::TaskHandle> {
+        let current = Task::current()?.cloned();
+        TASKS.lock().iter().find_map(|(&handle, entry)| {
+            Arc::ptr_eq(&current, &entry.task).then_some(task::TaskHandle::from_raw(handle))
+        })
     }
 
-    fn current_vcpu_id() -> VCpuId {
-        current_vcpu_context().vcpu_id
+    fn yield_now() {
+        Task::yield_now()
     }
 }
 
@@ -490,7 +443,7 @@ impl irq::IrqIf for IrqIfImpl {
         #[cfg(target_arch = "riscv64")]
         if vector == RISCV_S_EXT_VECTOR {
             ostd::arch::irq::for_each_pending_external_interrupt(|irq_id| {
-                axvisor_core::arch::riscv64::inject_interrupt(irq_id);
+                axvisor_core::arch::riscv64::inject_current_interrupt(irq_id);
             });
         }
 

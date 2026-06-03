@@ -47,7 +47,7 @@ pub(crate) fn host_fdt_paddr() -> Option<PhysAddr> {
 }
 
 pub(crate) fn inject_virtual_interrupt(vector: InterruptVector) {
-    axvisor_core::arch::riscv64::inject_interrupt(vector as usize);
+    axvisor_core::arch::riscv64::inject_current_interrupt(vector as usize);
 }
 
 pub(crate) fn dcache_range(_op: CacheOp, _addr: VirtAddr, _size: usize) {}
