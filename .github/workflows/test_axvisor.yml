@@ -22,6 +22,8 @@ jobs:
         include:
           - arch: x86_64
             guest: nimbos
+          - arch: x86_64
+            guest: linux
           - arch: riscv64
             guest: arceos
           - arch: riscv64

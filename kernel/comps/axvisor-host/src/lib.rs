@@ -29,6 +29,7 @@ use axvisor_api::{
 use ostd::power::ExitCode;
 use ostd::{
     cpu::{CpuSet, all_cpus},
+    irq::IrqLine,
     mm::{
         Frame, FrameAllocOptions, HasPaddr, HasSize, Infallible, PAGE_SIZE, Segment, Split,
         VmReader, VmWriter, paddr_to_vaddr,
@@ -73,6 +74,11 @@ static TASKS: SpinLock<BTreeMap<usize, Arc<TaskEntry>>, LocalIrqDisabled> =
 
 static IRQ_HANDLERS: SpinLock<BTreeMap<usize, irq::IrqHandler>, LocalIrqDisabled> =
     SpinLock::new(BTreeMap::new());
+#[cfg(target_arch = "x86_64")]
+static X86_IOAPIC_IRQ_MAPPINGS: SpinLock<
+    BTreeMap<usize, ostd::arch::irq::MappedIrqLine>,
+    LocalIrqDisabled,
+> = SpinLock::new(BTreeMap::new());
 
 static MEMORY_ALLOCS: SpinLock<BTreeMap<usize, HostMemory>, LocalIrqDisabled> =
     SpinLock::new(BTreeMap::new());
@@ -124,7 +130,6 @@ impl HostMemory {
 
 struct ConsoleInput {
     bytes: SpinLock<VecDeque<u8>, LocalIrqDisabled>,
-    waiters: WaitQueue,
     registered: AtomicBool,
 }
 
@@ -145,7 +150,6 @@ impl ConsoleInput {
     const fn new() -> Self {
         Self {
             bytes: SpinLock::new(VecDeque::new()),
-            waiters: WaitQueue::new(),
             registered: AtomicBool::new(false),
         }
     }
@@ -175,8 +179,6 @@ fn console_input_callback(mut reader: VmReader<Infallible>) {
 
     let mut bytes = CONSOLE_INPUT.bytes.lock();
     bytes.extend(input);
-    drop(bytes);
-    CONSOLE_INPUT.waiters.wake_all();
 }
 
 fn read_console_bytes(buf: &mut [u8]) -> usize {
@@ -185,18 +187,12 @@ fn read_console_bytes(buf: &mut [u8]) -> usize {
     }
 
     CONSOLE_INPUT.ensure_registered();
-    CONSOLE_INPUT.waiters.wait_until(|| {
-        let mut bytes = CONSOLE_INPUT.bytes.lock();
-        if bytes.is_empty() {
-            return None;
-        }
-
-        let count = buf.len().min(bytes.len());
-        for slot in buf.iter_mut().take(count) {
-            *slot = bytes.pop_front().expect("console input buffer underflow");
-        }
-        Some(count)
-    })
+    let mut bytes = CONSOLE_INPUT.bytes.lock();
+    let count = buf.len().min(bytes.len());
+    for slot in buf.iter_mut().take(count) {
+        *slot = bytes.pop_front().expect("console input buffer underflow");
+    }
+    count
 }
 
 fn kernel_task_runtime() -> &'static dyn KernelTaskRuntime {
@@ -445,8 +441,46 @@ impl irq::IrqIf for IrqIfImpl {
             return false;
         }
         handlers.insert(vector, handler);
+        #[cfg(target_arch = "x86_64")]
+        register_x86_ioapic_forwarding_irq(vector);
         true
     }
+}
+
+#[cfg(target_arch = "x86_64")]
+fn register_x86_ioapic_forwarding_irq(vector: usize) {
+    const IOAPIC_VECTOR_BASE: usize = 0x20;
+    const IOAPIC_GSI_COUNT: usize = 24;
+    const IOAPIC_VECTOR_END: usize = IOAPIC_VECTOR_BASE + IOAPIC_GSI_COUNT;
+
+    if !(IOAPIC_VECTOR_BASE..IOAPIC_VECTOR_END).contains(&vector) {
+        return;
+    }
+
+    let mut mappings = X86_IOAPIC_IRQ_MAPPINGS.lock();
+    if mappings.contains_key(&vector) {
+        return;
+    }
+
+    let Ok(mut irq_line) = IrqLine::alloc_specific(vector as u8) else {
+        return;
+    };
+    // AxVisor may intentionally skip the host driver for a passthrough x86 PCI
+    // device, so the host still needs an IOAPIC route to observe its INTx line.
+    irq_line.on_active(move |_| {
+        if let Some(handler) = IRQ_HANDLERS.lock().get(&vector).copied() {
+            handler(vector);
+        }
+    });
+    let gsi = (vector - IOAPIC_VECTOR_BASE) as u32;
+    let Ok(mapped_irq) = ostd::arch::irq::IRQ_CHIP
+        .get()
+        .unwrap()
+        .map_gsi_pin_to(irq_line, gsi)
+    else {
+        return;
+    };
+    mappings.insert(vector, mapped_irq);
 }
 
 #[api_impl]

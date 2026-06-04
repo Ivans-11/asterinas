@@ -1,0 +1,59 @@
+# Vm base info configs
+#
+[base]
+id = 1
+name = "linux-x86_64-qemu"
+vm_type = 1
+cpu_num = 1
+phys_cpu_sets = [1]
+
+#
+# Vm kernel configs
+#
+[kernel]
+entry_point = 0x8000
+image_location = "memory"
+kernel_path = "guest/qemu-x86_64"
+kernel_load_addr = 0x20_0000
+enable_bios = false
+cmdline = "console=ttyS0 root=/dev/vda rw rootwait devtmpfs.mount=1 init=/bin/sh acpi=off pci=conf1 pci=nomsi nox2apic tsc=unstable swiotlb=0 initcall_blacklist=ahci_pci_driver_init,i8042_init"
+
+memory_regions = [
+  [0x0000_0000, 0x0800_0000, 0x7, 1], # System RAM 128M, identity-mapped for passthrough virtio DMA
+  # x86 Linux direct boot starts in low memory and the decompressor may write
+  # across the configured low RAM window before switching to the final e820 map.
+  [0x0000_0000, 0x0800_0000, 0x7, 0], # Low boot scratch reserved from guest RAM
+]
+
+#
+# Device specifications
+#
+[devices]
+interrupt_mode = "passthrough"
+
+emu_devices = [
+  ["x86-com1", 0x3f8, 0x8, 0x0, 0x2, []],
+  ["x86-ioapic", 0xfec0_0000, 0x1000, 0x0, 0x23, []],
+  ["x86-pit", 0x40, 0x22, 0x0, 0x24, []],
+]
+
+passthrough_devices = [
+  [
+    "HPET",
+    0xfed0_0000,
+    0xfed0_0000,
+    0x1000,
+    0x1,
+  ],
+]
+
+passthrough_addresses = [
+  # QEMU q35 low MMIO window needed by PCI/virtio-blk probing.
+  [0xfe00_0000, 0x00c0_0000],
+  # Linux may probe this q35/ICH system MMIO page during early PCI setup.
+  [0xfed8_0000, 0x1000],
+  # virtio-blk 64-bit PCI BAR assigned by QEMU for this test device.
+  [0xe000_0000_000, 0x4000],
+]
+
+excluded_devices = []

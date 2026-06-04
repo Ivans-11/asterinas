@@ -38,7 +38,7 @@ qemu.args = "$(./tools/qemu_args.sh microvm)"
 [scheme."axvisor-x86_64"]
 supported_archs = ["x86_64"]
 boot.method = "qemu-direct"
-boot.kcmd_args = ["ostd.log_level=info"]
+boot.kcmd_args = ["ostd.log_level=info", "virtio.skip_block"]
 build.strip_elf = false
 qemu.args = ""
 

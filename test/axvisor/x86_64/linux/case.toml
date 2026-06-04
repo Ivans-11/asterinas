@@ -1,0 +1,21 @@
+arch = "x86_64"
+guest = "linux"
+image = "qemu_x86_64_linux"
+timeout_secs = 240
+success_regex = ["(?m)^guest linux test pass!\\s*$"]
+fail_regex = [
+  "(?i)\\bpanic(?:ked)?\\b",
+  "(?i)kernel panic",
+  "(?i)login incorrect",
+  "(?i)permission denied",
+]
+shell_prompt = "~ # "
+shell_init_cmd = "pwd && echo 'guest linux test pass!'"
+extra_qemu_args = [
+  "-smp",
+  "2",
+  "-device",
+  "virtio-blk-pci,drive=disk0,addr=03.0,disable-legacy=on,disable-modern=off,event_idx=off,indirect_desc=off,queue_reset=off",
+  "-drive",
+  "id=disk0,if=none,format=raw,file={guest_dir}/rootfs.img",
+]
