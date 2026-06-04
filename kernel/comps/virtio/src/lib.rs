@@ -9,10 +9,7 @@ extern crate alloc;
 extern crate ostd_pod;
 
 use alloc::boxed::Box;
-use core::{
-    hint::spin_loop,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use core::hint::spin_loop;
 
 use aster_block::MajorIdOwner;
 use bitflags::bitflags;
@@ -22,7 +19,7 @@ use device::{
     entropy::device::EntropyDevice, filesystem::device::FileSystemDevice,
     input::device::InputDevice, network::device::NetworkDevice, socket::device::SocketDevice,
 };
-use ostd::{error, info, warn};
+use ostd::{error, warn};
 use spin::Once;
 use transport::{DeviceStatus, mmio::VIRTIO_MMIO_DRIVER, pci::VIRTIO_PCI_DRIVER};
 
@@ -42,7 +39,6 @@ mod queue;
 mod transport;
 
 static VIRTIO_BLOCK_MAJOR_ID: Once<MajorIdOwner> = Once::new();
-static SKIP_BLOCK_DEVICES: AtomicBool = AtomicBool::new(false);
 
 #[init_component]
 fn virtio_component_init() -> Result<(), ComponentInitError> {
@@ -57,10 +53,6 @@ fn virtio_component_init() -> Result<(), ComponentInitError> {
 
     while let Some(mut transport) = pop_device_transport() {
         let device_type = transport.device_type();
-        if device_type == VirtioDeviceType::Block && SKIP_BLOCK_DEVICES.load(Ordering::Relaxed) {
-            info!("Skipping virtio block device initialization by kernel command line");
-            continue;
-        }
 
         // Reset device
         transport
@@ -106,8 +98,6 @@ fn virtio_component_init() -> Result<(), ComponentInitError> {
     }
     Ok(())
 }
-
-aster_cmdline::define_flag_param!("virtio.skip_block", SKIP_BLOCK_DEVICES);
 
 fn pop_device_transport() -> Option<Box<dyn VirtioTransport>> {
     if let Some(device) = VIRTIO_PCI_DRIVER.get().unwrap().pop_device_transport() {
