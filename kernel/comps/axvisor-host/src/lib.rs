@@ -21,9 +21,7 @@ use core::{
 };
 
 use axvisor_api::{
-    api_impl,
-    arch::{self as api_arch, CacheOp},
-    console, host, irq,
+    api_impl, arch as api_arch, console, host, irq,
     memory::{self, PhysAddr, VirtAddr},
     sync, task, time,
 };
@@ -495,10 +493,11 @@ impl memory::MemoryIf for MemoryIfImpl {
 
 #[api_impl]
 impl api_arch::ArchIf for ArchIfImpl {
-    fn dcache_range(op: CacheOp, addr: VirtAddr, size: usize) {
-        arch::dcache_range(op, addr, size)
-    }
-
+    #[cfg(any(
+        target_arch = "aarch64",
+        target_arch = "loongarch64",
+        target_arch = "riscv64"
+    ))]
     fn host_fdt_paddr() -> Option<PhysAddr> {
         arch::host_fdt_paddr()
     }

@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use axvisor_api::{
-    arch::CacheOp,
-    memory::{PhysAddr, VirtAddr},
-    time,
-};
+use axvisor_api::{memory::PhysAddr, time};
 use ostd::arch::boot::DEVICE_TREE_PADDR;
 
 pub(crate) fn prepare_virtualization() {}
@@ -18,5 +14,3 @@ pub(crate) fn set_oneshot_timer(_deadline: time::TimeValue) {
 pub(crate) fn host_fdt_paddr() -> Option<PhysAddr> {
     DEVICE_TREE_PADDR.get().copied().map(PhysAddr::from_usize)
 }
-
-pub(crate) fn dcache_range(_op: CacheOp, _addr: VirtAddr, _size: usize) {}

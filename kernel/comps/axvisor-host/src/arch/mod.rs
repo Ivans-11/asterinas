@@ -9,9 +9,13 @@ use ostd::mm::paddr_to_vaddr;
 #[cfg_attr(target_arch = "aarch64", path = "aarch64.rs")]
 mod imp;
 
-pub(crate) use imp::{
-    dcache_range, host_fdt_paddr, init_percpu, prepare_virtualization, set_oneshot_timer,
-};
+#[cfg(any(
+    target_arch = "aarch64",
+    target_arch = "loongarch64",
+    target_arch = "riscv64"
+))]
+pub(crate) use imp::host_fdt_paddr;
+pub(crate) use imp::{init_percpu, prepare_virtualization, set_oneshot_timer};
 
 pub(crate) fn linear_mapping_virt_to_phys(addr: usize) -> PhysAddr {
     let linear_mapping_base = paddr_to_vaddr(0);
