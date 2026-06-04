@@ -15,7 +15,7 @@ mod imp;
     target_arch = "riscv64"
 ))]
 pub(crate) use imp::host_fdt_paddr;
-pub(crate) use imp::{init_percpu, prepare_virtualization, set_oneshot_timer};
+pub(crate) use imp::{init_percpu, set_oneshot_timer};
 
 pub(crate) fn linear_mapping_virt_to_phys(addr: usize) -> PhysAddr {
     let linear_mapping_base = paddr_to_vaddr(0);

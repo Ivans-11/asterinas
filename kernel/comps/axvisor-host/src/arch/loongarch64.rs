@@ -3,8 +3,6 @@
 use axvisor_api::{memory::PhysAddr, time};
 use ostd::arch::boot::DEVICE_TREE_PADDR;
 
-pub(crate) fn prepare_virtualization() {}
-
 pub(crate) fn init_percpu() {}
 
 pub(crate) fn set_oneshot_timer(_deadline: time::TimeValue) {

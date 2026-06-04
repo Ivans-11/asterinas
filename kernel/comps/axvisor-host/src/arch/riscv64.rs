@@ -9,8 +9,6 @@ const NANOS_PER_SEC: u128 = 1_000_000_000;
 #[ax_percpu::def_percpu]
 static TIMER_DEADLINE_TICKS: u64 = NO_DEADLINE_TICKS;
 
-pub(crate) fn prepare_virtualization() {}
-
 pub(crate) fn init_percpu() {
     timer::register_callback_on_cpu(|| {
         let deadline = TIMER_DEADLINE_TICKS.read_current();

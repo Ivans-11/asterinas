@@ -28,7 +28,7 @@ use axvisor_api::{
 #[cfg(feature = "shell")]
 use ostd::power::ExitCode;
 use ostd::{
-    cpu::{CpuId, CpuSet, all_cpus},
+    cpu::{CpuSet, all_cpus},
     mm::{
         Frame, FrameAllocOptions, HasPaddr, HasSize, Infallible, PAGE_SIZE, Segment, Split,
         VmReader, VmWriter, paddr_to_vaddr,
@@ -287,23 +287,12 @@ fn alloc_aligned_segment(num_frames: usize, frame_align: usize) -> Option<Segmen
 
 #[api_impl]
 impl host::HostIf for HostIfImpl {
-    fn prepare_virtualization() {
-        arch::prepare_virtualization();
-    }
-
     fn get_host_cpu_num() -> usize {
         ostd::cpu::num_cpus()
     }
 
-    fn spawn_cpu_init_task(cpu_id: usize, task: Box<dyn FnOnce() + Send + 'static>) {
-        let cpu = CpuId::try_from(cpu_id).expect("invalid CPU id for Axvisor initialization");
-        let _ = spawn_kernel_task(
-            Box::new(move || {
-                arch::init_percpu();
-                task();
-            }),
-            CpuSet::from(cpu),
-        );
+    fn init_percpu() {
+        arch::init_percpu();
     }
 
     #[cfg(feature = "shell")]
