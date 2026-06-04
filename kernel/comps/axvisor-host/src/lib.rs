@@ -25,11 +25,12 @@ use axvisor_api::{
     memory::{self, PhysAddr, VirtAddr},
     sync, task, time,
 };
+#[cfg(target_arch = "x86_64")]
+use ostd::irq::IrqLine;
 #[cfg(feature = "shell")]
 use ostd::power::ExitCode;
 use ostd::{
     cpu::{CpuSet, all_cpus},
-    irq::IrqLine,
     mm::{
         Frame, FrameAllocOptions, HasPaddr, HasSize, Infallible, PAGE_SIZE, Segment, Split,
         VmReader, VmWriter, paddr_to_vaddr,

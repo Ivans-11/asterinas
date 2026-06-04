@@ -164,7 +164,6 @@ dependencies = [
  "aster-console",
  "aster-logger",
  "aster-time",
- "ax-errno",
  "ax-percpu",
  "axvisor_api",
  "axvisor_core",

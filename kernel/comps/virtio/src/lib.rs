@@ -52,8 +52,6 @@ fn virtio_component_init() -> Result<(), ComponentInitError> {
     device::socket::init();
 
     while let Some(mut transport) = pop_device_transport() {
-        let device_type = transport.device_type();
-
         // Reset device
         transport
             .write_device_status(DeviceStatus::empty())
@@ -76,7 +74,8 @@ fn virtio_component_init() -> Result<(), ComponentInitError> {
             transport.write_device_status(status).unwrap();
         }
 
-        let res = match device_type {
+        let device_type = transport.device_type();
+        let res = match transport.device_type() {
             VirtioDeviceType::Block => BlockDevice::init(transport),
             VirtioDeviceType::Console => ConsoleDevice::init(transport),
             VirtioDeviceType::Entropy => EntropyDevice::init(transport),
