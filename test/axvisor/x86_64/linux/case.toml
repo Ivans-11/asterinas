@@ -15,7 +15,7 @@ extra_qemu_args = [
   "-smp",
   "2",
   "-device",
-  "virtio-blk-pci,drive=disk0,addr=03.0,disable-legacy=on,disable-modern=off,event_idx=off,indirect_desc=off,queue_reset=off",
+  "virtio-blk-pci,drive=disk0,addr=03.0",
   "-drive",
   "id=disk0,if=none,format=raw,file={guest_dir}/rootfs.img",
 ]
