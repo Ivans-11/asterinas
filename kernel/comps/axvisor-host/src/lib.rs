@@ -94,6 +94,14 @@ pub trait ControlEndpointRuntime: Sync {
         mmap_size: usize,
     ) -> AxResult<control::HostFd>;
 
+    /// Writes bytes into a vCPU run page owned by the host fd for `session`.
+    fn write_vcpu_run_page(
+        &self,
+        session: control::SessionId,
+        offset: usize,
+        buf: &[u8],
+    ) -> AxResult;
+
     /// Reads bytes from the current userspace task.
     fn read_user(&self, addr: usize, buf: &mut [u8]) -> AxResult;
 
@@ -514,6 +522,10 @@ impl control::ControlIf for ControlIfImpl {
         mmap_size: usize,
     ) -> AxResult<control::HostFd> {
         control_endpoint_runtime().create_vcpu_fd(endpoint, session, mmap_size)
+    }
+
+    fn write_vcpu_run_page(session: control::SessionId, offset: usize, buf: &[u8]) -> AxResult {
+        control_endpoint_runtime().write_vcpu_run_page(session, offset, buf)
     }
 
     fn read_user(addr: usize, buf: &mut [u8]) -> AxResult {

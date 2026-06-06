@@ -19,7 +19,10 @@
 #define KVM_GET_VCPU_MMAP_SIZE IOC(KVMIO, 0x04)
 #define KVM_CREATE_VCPU IOC(KVMIO, 0x41)
 #define KVM_SET_USER_MEMORY_REGION IOW(KVMIO, 0x46, sizeof(struct kvm_userspace_memory_region))
+#define KVM_RUN IOC(KVMIO, 0x80)
 #define KVM_GET_MP_STATE IOR(KVMIO, 0x98, sizeof(struct kvm_mp_state))
+
+#define KVM_EXIT_SHUTDOWN 8
 
 #define KVM_CAP_USER_MEMORY 3
 #define KVM_CAP_NR_VCPUS 9
@@ -45,6 +48,13 @@ struct kvm_userspace_memory_region {
 
 struct kvm_mp_state {
 	unsigned int mp_state;
+};
+
+struct kvm_run_header {
+	unsigned char request_interrupt_window;
+	unsigned char immediate_exit;
+	unsigned char padding1[6];
+	unsigned int exit_reason;
 };
 
 static unsigned char guest_memory[4096] __attribute__((aligned(4096)));
@@ -177,6 +187,14 @@ static void puts(const char *s)
 	sys_write(1, s, str_len(s));
 }
 
+static void write_le32(unsigned char *addr, unsigned int value)
+{
+	addr[0] = value & 0xff;
+	addr[1] = (value >> 8) & 0xff;
+	addr[2] = (value >> 16) & 0xff;
+	addr[3] = (value >> 24) & 0xff;
+}
+
 static int expect_ioctl(long fd, unsigned long request, unsigned long arg, long expected,
 			const char *name)
 {
@@ -242,7 +260,7 @@ static int main(void)
 	struct kvm_userspace_memory_region memory_region = {
 		.slot = 0,
 		.flags = 0,
-		.guest_phys_addr = 0x100000,
+		.guest_phys_addr = 0,
 		.memory_size = sizeof(guest_memory),
 		.userspace_addr = (unsigned long long)guest_memory,
 	};
@@ -270,6 +288,17 @@ static int main(void)
 		return 1;
 	if (mp_state.mp_state != 0) {
 		puts("unexpected KVM_GET_MP_STATE value\n");
+		return 1;
+	}
+
+	struct kvm_run_header *run_header = (struct kvm_run_header *)run;
+	write_le32(&guest_memory[0], 0x00800893); /* addi a7, zero, 8 */
+	write_le32(&guest_memory[4], 0x00000073); /* ecall */
+	run_header->exit_reason = 0xffffffff;
+	if (expect_ioctl(vcpufd, KVM_RUN, 0, 0, "KVM_RUN") != 0)
+		return 1;
+	if (run_header->exit_reason != KVM_EXIT_SHUTDOWN) {
+		puts("KVM_RUN unexpected exit_reason\n");
 		return 1;
 	}
 	sys_close(vcpufd);

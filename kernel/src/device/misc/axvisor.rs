@@ -37,6 +37,7 @@ use crate::{
 const KVM_MINOR: u32 = 232;
 
 static KVM_ENDPOINT: Mutex<Option<EndpointEntry>> = Mutex::new(None);
+static VCPU_RUN_PAGES: Mutex<BTreeMap<SessionId, Arc<Vmo>>> = Mutex::new(BTreeMap::new());
 static NEXT_ACQUIRED_USER_MEMORY: AtomicU64 = AtomicU64::new(1);
 static ACQUIRED_USER_MEMORY: Mutex<BTreeMap<control::UserMemoryHandle, Vec<UFrame>>> =
     Mutex::new(BTreeMap::new());
@@ -105,6 +106,10 @@ impl ControlEndpointRuntime for AxvisorControlEndpointRuntime {
         };
 
         create_vcpu_fd(session, ops, mmap_size).map_err(to_ax_error)
+    }
+
+    fn write_vcpu_run_page(&self, session: SessionId, offset: usize, buf: &[u8]) -> AxResult {
+        write_vcpu_run_page(session, offset, buf).map_err(to_ax_error)
     }
 
     fn read_user(&self, addr: usize, buf: &mut [u8]) -> AxResult {
@@ -369,6 +374,7 @@ impl KvmVcpuFile {
 
 impl Drop for KvmVcpuFile {
     fn drop(&mut self) {
+        VCPU_RUN_PAGES.lock().remove(&self.session);
         let _ = (self.ops.release)(self.session);
     }
 }
@@ -450,7 +456,17 @@ fn create_vm_fd(session: SessionId, ops: ControlOps) -> Result<HostFd> {
 }
 
 fn create_vcpu_fd(session: SessionId, ops: ControlOps, mmap_size: usize) -> Result<HostFd> {
-    create_object_fd(Arc::new(KvmVcpuFile::new(session, ops, mmap_size)?))
+    let vcpu_file = Arc::new(KvmVcpuFile::new(session, ops, mmap_size)?);
+    VCPU_RUN_PAGES
+        .lock()
+        .insert(session, vcpu_file.run_vmo.clone());
+    match create_object_fd(vcpu_file) {
+        Ok(fd) => Ok(fd),
+        Err(err) => {
+            VCPU_RUN_PAGES.lock().remove(&session);
+            Err(err)
+        }
+    }
 }
 
 fn create_object_fd(file: Arc<dyn FileLike>) -> Result<HostFd> {
@@ -482,6 +498,16 @@ fn write_user(addr: usize, buf: &[u8]) -> Result<()> {
         .as_thread_local()
         .ok_or_else(|| Error::with_message(Errno::EINVAL, "current task is not a user thread"))?;
     CurrentUserSpace::new(thread_local).write_bytes(addr, buf)?;
+    Ok(())
+}
+
+fn write_vcpu_run_page(session: SessionId, offset: usize, buf: &[u8]) -> Result<()> {
+    let run_vmo = VCPU_RUN_PAGES
+        .lock()
+        .get(&session)
+        .cloned()
+        .ok_or_else(|| Error::with_message(Errno::ENOENT, "vCPU run page not found"))?;
+    run_vmo.write(offset, &mut VmReader::from(buf).to_fallible())?;
     Ok(())
 }
 
