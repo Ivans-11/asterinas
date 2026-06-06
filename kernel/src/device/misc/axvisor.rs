@@ -2,14 +2,20 @@
 
 //! KVM-compatible AxVisor misc-device support.
 
-use core::fmt::Display;
+use core::{
+    fmt::Display,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use aster_axvisor_host::{
     AxError, AxErrorKind, AxResult, ControlEndpointRuntime,
-    control::{ControlOps, EndpointId, EndpointSpec, HostFd, SessionId},
+    control::{self, ControlOps, EndpointId, EndpointSpec, HostFd, SessionId},
 };
 use device_id::{DeviceId, MinorId};
-use ostd::{mm::VmIo, task::Task};
+use ostd::{
+    mm::{HasPaddr, UFrame, VmIo},
+    task::Task,
+};
 
 use crate::{
     device::{Device, DeviceType, DevtmpfsInodeMeta, registry::char},
@@ -31,6 +37,9 @@ use crate::{
 const KVM_MINOR: u32 = 232;
 
 static KVM_ENDPOINT: Mutex<Option<EndpointEntry>> = Mutex::new(None);
+static NEXT_ACQUIRED_USER_MEMORY: AtomicU64 = AtomicU64::new(1);
+static ACQUIRED_USER_MEMORY: Mutex<BTreeMap<control::UserMemoryHandle, Vec<UFrame>>> =
+    Mutex::new(BTreeMap::new());
 
 #[derive(Clone, Copy)]
 struct EndpointEntry {
@@ -104,6 +113,19 @@ impl ControlEndpointRuntime for AxvisorControlEndpointRuntime {
 
     fn write_user(&self, addr: usize, buf: &[u8]) -> AxResult {
         write_user(addr, buf).map_err(to_ax_error)
+    }
+
+    fn acquire_user_memory(
+        &self,
+        addr: usize,
+        len: usize,
+        writable: bool,
+    ) -> AxResult<control::AcquiredUserMemory> {
+        acquire_user_memory(addr, len, writable).map_err(to_ax_error)
+    }
+
+    fn release_user_memory(&self, handle: control::UserMemoryHandle) -> AxResult {
+        release_user_memory(handle).map_err(to_ax_error)
     }
 }
 
@@ -461,6 +483,41 @@ fn write_user(addr: usize, buf: &[u8]) -> Result<()> {
         .ok_or_else(|| Error::with_message(Errno::EINVAL, "current task is not a user thread"))?;
     CurrentUserSpace::new(thread_local).write_bytes(addr, buf)?;
     Ok(())
+}
+
+fn acquire_user_memory(
+    addr: usize,
+    len: usize,
+    writable: bool,
+) -> Result<control::AcquiredUserMemory> {
+    if !addr.is_multiple_of(PAGE_SIZE) || !len.is_multiple_of(PAGE_SIZE) {
+        return_errno_with_message!(Errno::EINVAL, "acquired user memory must be page aligned");
+    }
+
+    let task = Task::current()
+        .ok_or_else(|| Error::with_message(Errno::ESRCH, "current task is not available"))?;
+    let thread_local = task
+        .as_thread_local()
+        .ok_or_else(|| Error::with_message(Errno::EINVAL, "current task is not a user thread"))?;
+    let user_space = CurrentUserSpace::new(thread_local);
+    let frames = user_space.vmar().acquire_pages_alien(addr, len, writable)?;
+    let pages = frames.iter().map(|frame| frame.paddr().into()).collect();
+
+    let handle = NEXT_ACQUIRED_USER_MEMORY.fetch_add(1, Ordering::Relaxed);
+    if handle == 0 {
+        return_errno_with_message!(Errno::EOVERFLOW, "acquired user memory handle overflow");
+    }
+    ACQUIRED_USER_MEMORY.lock().insert(handle, frames);
+
+    Ok(control::AcquiredUserMemory { handle, pages })
+}
+
+fn release_user_memory(handle: control::UserMemoryHandle) -> Result<()> {
+    ACQUIRED_USER_MEMORY
+        .lock()
+        .remove(&handle)
+        .map(|_| ())
+        .ok_or_else(|| Error::with_message(Errno::ENOENT, "acquired user memory not found"))
 }
 
 fn endpoint_ops() -> Result<ControlOps> {

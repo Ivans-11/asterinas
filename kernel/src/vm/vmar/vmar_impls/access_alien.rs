@@ -83,6 +83,41 @@ impl Vmar {
         self.access_alien(vaddr, len, PageFlags::W, write)
     }
 
+    /// Acquires user pages in the context of an alien thread.
+    ///
+    /// The returned frames keep the resolved pages alive while they are held by
+    /// the caller.
+    pub fn acquire_pages_alien(
+        &self,
+        vaddr: Vaddr,
+        len: usize,
+        writable: bool,
+    ) -> Result<Vec<UFrame>> {
+        if len == 0 {
+            return Ok(Vec::new());
+        }
+
+        if !is_userspace_vaddr_range(vaddr, len) {
+            return_errno_with_message!(Errno::EINVAL, "the address range is not in userspace");
+        }
+
+        let range = vaddr.align_down(PAGE_SIZE)..(vaddr + len).align_up(PAGE_SIZE);
+        let required_page_flags = if writable {
+            PageFlags::R | PageFlags::W
+        } else {
+            PageFlags::R
+        };
+
+        let mut frames = Vec::with_capacity((range.end - range.start) / PAGE_SIZE);
+        let mut current_va = range.start;
+        while current_va < range.end {
+            frames.push(self.query_page_with_required_flags(current_va, required_page_flags)?);
+            current_va += PAGE_SIZE;
+        }
+
+        Ok(frames)
+    }
+
     /// Accesses memory at `vaddr..vaddr+len` in the context of an alien thread using `op`.
     ///
     /// The `VmSpace` of the process is not required to be activated on the current CPU.

@@ -99,6 +99,17 @@ pub trait ControlEndpointRuntime: Sync {
 
     /// Writes bytes into the current userspace task.
     fn write_user(&self, addr: usize, buf: &[u8]) -> AxResult;
+
+    /// Acquires userspace pages from the current userspace task.
+    fn acquire_user_memory(
+        &self,
+        addr: usize,
+        len: usize,
+        writable: bool,
+    ) -> AxResult<control::AcquiredUserMemory>;
+
+    /// Releases an acquired userspace memory handle.
+    fn release_user_memory(&self, handle: control::UserMemoryHandle) -> AxResult;
 }
 
 static KERNEL_TASK_RUNTIME: Once<&'static dyn KernelTaskRuntime> = Once::new();
@@ -511,6 +522,18 @@ impl control::ControlIf for ControlIfImpl {
 
     fn write_user(addr: usize, buf: &[u8]) -> AxResult {
         control_endpoint_runtime().write_user(addr, buf)
+    }
+
+    fn acquire_user_memory(
+        addr: usize,
+        len: usize,
+        writable: bool,
+    ) -> AxResult<control::AcquiredUserMemory> {
+        control_endpoint_runtime().acquire_user_memory(addr, len, writable)
+    }
+
+    fn release_user_memory(handle: control::UserMemoryHandle) -> AxResult {
+        control_endpoint_runtime().release_user_memory(handle)
     }
 }
 
