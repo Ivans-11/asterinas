@@ -43,6 +43,9 @@ impl aster_axvisor_host::KernelTaskRuntime for AxvisorKernelTaskRuntime {
 #[cfg(feature = "axvisor")]
 fn init_axvisor_host_runtime() {
     aster_axvisor_host::install_kernel_task_runtime(&AXVISOR_KERNEL_TASK_RUNTIME);
+    aster_axvisor_host::install_control_endpoint_runtime(
+        crate::device::misc::axvisor_control_endpoint_runtime(),
+    );
 }
 
 pub(super) fn main() {

@@ -83,7 +83,11 @@ loongArch64 = "0.2.5"
 
 [features]
 default = ["cvm_guest"]
-axvisor = ["dep:aster-axvisor-host", "aster-axvisor-host/shell"]
+axvisor = [
+    "dep:aster-axvisor-host",
+    "aster-axvisor-host/control",
+    "aster-axvisor-host/shell",
+]
 vmx = ["axvisor", "aster-axvisor-host/vmx"]
 svm = ["axvisor", "aster-axvisor-host/svm"]
 sstc = ["axvisor", "aster-axvisor-host/sstc"]

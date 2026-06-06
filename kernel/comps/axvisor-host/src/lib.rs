@@ -20,8 +20,13 @@ use core::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
+#[cfg(feature = "control")]
+pub use ax_errno::{AxError, AxErrorKind, AxResult};
+pub use axvisor_api::api_impl;
+#[cfg(feature = "control")]
+pub use axvisor_api::control;
 use axvisor_api::{
-    api_impl, arch as api_arch, console, host, irq,
+    arch as api_arch, console, host, irq,
     memory::{self, PhysAddr, VirtAddr},
     sync, task, time,
 };
@@ -49,6 +54,8 @@ struct TaskIfImpl;
 struct IrqIfImpl;
 struct MemoryIfImpl;
 struct ArchIfImpl;
+#[cfg(feature = "control")]
+struct ControlIfImpl;
 
 #[cfg(target_arch = "riscv64")]
 const RISCV_S_EXT_VECTOR: usize = (1usize << (usize::BITS - 1)) + 9;
@@ -63,7 +70,19 @@ pub trait KernelTaskRuntime: Sync {
     ) -> Arc<Task>;
 }
 
+/// Runtime hook used to expose Axvisor's control endpoint through Asterinas.
+#[cfg(feature = "control")]
+pub trait ControlEndpointRuntime: Sync {
+    /// Registers a host-visible control endpoint such as `/dev/axvisor`.
+    fn register_endpoint(&self, spec: control::EndpointSpec) -> AxResult<control::EndpointId>;
+
+    /// Unregisters a previously registered host-visible control endpoint.
+    fn unregister_endpoint(&self, id: control::EndpointId) -> AxResult;
+}
+
 static KERNEL_TASK_RUNTIME: Once<&'static dyn KernelTaskRuntime> = Once::new();
+#[cfg(feature = "control")]
+static CONTROL_ENDPOINT_RUNTIME: Once<&'static dyn ControlEndpointRuntime> = Once::new();
 
 static WAIT_QUEUE_IDS: AtomicUsize = AtomicUsize::new(1);
 static WAIT_QUEUES: SpinLock<BTreeMap<usize, Arc<WaitQueue>>, LocalIrqDisabled> =
@@ -147,6 +166,20 @@ pub fn install_kernel_task_runtime(runtime: &'static dyn KernelTaskRuntime) {
     );
 }
 
+/// Installs the Asterinas control endpoint runtime used by Axvisor host integration.
+#[cfg(feature = "control")]
+pub fn install_control_endpoint_runtime(runtime: &'static dyn ControlEndpointRuntime) {
+    let mut is_new = false;
+    CONTROL_ENDPOINT_RUNTIME.call_once(|| {
+        is_new = true;
+        runtime
+    });
+    assert!(
+        is_new,
+        "Axvisor control endpoint runtime has already been installed"
+    );
+}
+
 impl ConsoleInput {
     const fn new() -> Self {
         Self {
@@ -200,6 +233,13 @@ fn kernel_task_runtime() -> &'static dyn KernelTaskRuntime {
     *KERNEL_TASK_RUNTIME
         .get()
         .expect("Axvisor kernel task runtime is not installed")
+}
+
+#[cfg(feature = "control")]
+fn control_endpoint_runtime() -> &'static dyn ControlEndpointRuntime {
+    *CONTROL_ENDPOINT_RUNTIME
+        .get()
+        .expect("Axvisor control endpoint runtime is not installed")
 }
 
 fn spawn_kernel_task(entry: Box<dyn FnOnce() + Send + 'static>, cpu_affinity: CpuSet) -> Arc<Task> {
@@ -415,6 +455,18 @@ impl task::TaskIf for TaskIfImpl {
 
     fn yield_now() {
         Task::yield_now()
+    }
+}
+
+#[cfg(feature = "control")]
+#[api_impl]
+impl control::ControlIf for ControlIfImpl {
+    fn register_endpoint(spec: control::EndpointSpec) -> AxResult<control::EndpointId> {
+        control_endpoint_runtime().register_endpoint(spec)
+    }
+
+    fn unregister_endpoint(id: control::EndpointId) -> AxResult {
+        control_endpoint_runtime().unregister_endpoint(id)
     }
 }
 
