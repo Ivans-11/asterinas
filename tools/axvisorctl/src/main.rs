@@ -16,7 +16,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use case::{Arch, LoadedCase, LoadedHost};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use image::ImageStore;
 use regex::Regex;
 
@@ -43,14 +43,36 @@ struct RunArgs {
     arch: Option<Arch>,
     #[arg(long)]
     guest: Option<String>,
+    #[arg(long, value_enum, default_value_t = AxvisorMode::Static)]
+    mode: AxvisorMode,
 }
 
 #[derive(Args)]
 struct TestArgs {
     #[arg(long)]
     arch: Option<Arch>,
-    #[arg(long)]
-    guest: String,
+    #[arg(long, required_if_eq("mode", "static"))]
+    guest: Option<String>,
+    #[arg(long, value_enum, default_value_t = AxvisorMode::Static)]
+    mode: AxvisorMode,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "snake_case")]
+enum AxvisorMode {
+    Static,
+    Control,
+    Off,
+}
+
+impl AxvisorMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Static => "static",
+            Self::Control => "control",
+            Self::Off => "off",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -269,6 +291,7 @@ fn run_command(workspace: &Workspace, args: RunArgs) -> Result<()> {
         host_launch.as_ref(),
         staged_case.as_ref(),
         OsdkMode::Run,
+        args.mode,
     )?;
 
     clear_qemu_logs(workspace)?;
@@ -301,7 +324,15 @@ fn run_command(workspace: &Workspace, args: RunArgs) -> Result<()> {
 fn test_command(workspace: &Workspace, args: TestArgs) -> Result<()> {
     fs::create_dir_all(&workspace.target_dir)
         .with_context(|| format!("failed to create {}", workspace.target_dir.display()))?;
-    let staged_case = stage_case(workspace, args.arch, &args.guest)?;
+    if args.mode != AxvisorMode::Static {
+        return test_host_mode(workspace, args);
+    }
+
+    let guest = args
+        .guest
+        .as_deref()
+        .ok_or_else(|| anyhow!("--guest is required for static Axvisor tests"))?;
+    let staged_case = stage_case(workspace, args.arch, guest)?;
     let host_launch = HostLaunchConfig {
         scheme: staged_case.scheme.clone(),
         features: staged_case.features.clone(),
@@ -316,6 +347,7 @@ fn test_command(workspace: &Workspace, args: TestArgs) -> Result<()> {
         Some(&host_launch),
         Some(&staged_case),
         OsdkMode::Build,
+        args.mode,
     )?;
     println!("[axvisorctl] building Axvisor test target...");
     let status = build
@@ -332,12 +364,62 @@ fn test_command(workspace: &Workspace, args: TestArgs) -> Result<()> {
         Some(&host_launch),
         Some(&staged_case),
         OsdkMode::Run,
+        args.mode,
     )?;
     let harness = build_test_harness(workspace, &staged_case)?;
 
     clear_qemu_logs(workspace)?;
     run_test_process(&mut invocation, harness)?;
     archive_qemu_logs(workspace, staged_case.loaded.key())?;
+    Ok(())
+}
+
+fn test_host_mode(workspace: &Workspace, args: TestArgs) -> Result<()> {
+    if args.guest.is_some() {
+        bail!("--guest is only supported for static Axvisor tests");
+    }
+
+    let arch = args.arch.unwrap_or_default();
+    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch)?;
+    let host_launch = case::resolve_host(&workspace.root, arch)?
+        .map(|host| stage_host_launch(arch, host))
+        .transpose()?
+        .unwrap_or_else(|| HostLaunchConfig {
+            scheme: arch.default_scheme().to_string(),
+            features: vec!["axvisor".to_string()],
+            rendered_qemu_args: Vec::new(),
+        });
+    let mut build = build_osdk_command(
+        workspace,
+        arch,
+        initramfs.clone(),
+        Some(&host_launch),
+        None,
+        OsdkMode::Build,
+        args.mode,
+    )?;
+    println!("[axvisorctl] building Axvisor host-mode test target...");
+    let status = build
+        .status()
+        .context("failed to launch cargo osdk build for host-mode test")?;
+    if !status.success() {
+        bail!("cargo osdk build failed with status {status}");
+    }
+
+    let mut invocation = build_osdk_command(
+        workspace,
+        arch,
+        initramfs,
+        Some(&host_launch),
+        None,
+        OsdkMode::Run,
+        args.mode,
+    )?;
+    let harness = build_host_mode_harness(workspace, arch, args.mode);
+
+    clear_qemu_logs(workspace)?;
+    run_test_process(&mut invocation, harness)?;
+    archive_qemu_logs(workspace, format!("{}-{}", arch.as_str(), args.mode.as_str()))?;
     Ok(())
 }
 
@@ -413,6 +495,7 @@ fn build_osdk_command(
     host_launch: Option<&HostLaunchConfig>,
     staged_case: Option<&StagedCase>,
     mode: OsdkMode,
+    axvisor_mode: AxvisorMode,
 ) -> Result<Command> {
     let mut command = osdk::new_osdk_command(
         &workspace.root,
@@ -446,6 +529,7 @@ fn build_osdk_command(
         .arg(&scheme)
         .arg("--features")
         .arg(&features)
+        .arg(format!("--kcmd-args=axvisor.mode={}", axvisor_mode.as_str()))
         .arg("--initramfs")
         .arg(&initramfs);
 
@@ -516,6 +600,27 @@ fn build_test_harness(workspace: &Workspace, staged_case: &StagedCase) -> Result
             .join(format!("{qemu_log_prefix}.run.log")),
         qemu_log_prefix,
     })
+}
+
+fn build_host_mode_harness(workspace: &Workspace, arch: Arch, mode: AxvisorMode) -> TestHarness {
+    let qemu_log_prefix = format!("{}-{}", arch.as_str(), mode.as_str());
+    let success = match mode {
+        AxvisorMode::Control => vec![Regex::new(r"AxVisor control endpoint registered: 1").unwrap()],
+        AxvisorMode::Off => vec![Regex::new(r"disabled by axvisor\.mode=off").unwrap()],
+        AxvisorMode::Static => unreachable!("static mode uses guest test harness"),
+    };
+
+    TestHarness {
+        timeout: Duration::from_secs(120),
+        success,
+        failure: Vec::new(),
+        shell_prompt: None,
+        shell_init_cmd: None,
+        log_path: workspace
+            .logs_dir
+            .join(format!("{qemu_log_prefix}.run.log")),
+        qemu_log_prefix,
+    }
 }
 
 fn run_test_process(command: &mut Command, harness: TestHarness) -> Result<()> {

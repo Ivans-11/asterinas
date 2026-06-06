@@ -586,8 +586,20 @@ impl api_arch::ArchIf for ArchIfImpl {
     }
 }
 
+/// Initializes Axvisor as a host-controlled hypervisor endpoint.
+#[cfg(feature = "control")]
+pub fn init_control_mode() -> AxResult {
+    aster_logger::print!("[axvisor] starting in control mode on Asterinas host runtime\n");
+    axvisor_core::boot::init_control_mode()
+}
+
+/// Runs the static-configuration Axvisor boot flow.
+pub fn run_static_mode() {
+    aster_logger::print!("[axvisor] starting in static mode on Asterinas host runtime\n");
+    axvisor_core::boot::run_static_mode();
+}
+
 /// Runs the current Asterinas-side Axvisor integration hook.
 pub fn run() {
-    aster_logger::print!("[axvisor] starting on Asterinas host runtime\n");
-    axvisor_core::boot::run();
+    run_static_mode();
 }

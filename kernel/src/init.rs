@@ -48,6 +48,23 @@ fn init_axvisor_host_runtime() {
     );
 }
 
+#[cfg(feature = "axvisor")]
+fn run_axvisor_host() {
+    match AXVISOR_MODE
+        .get()
+        .map(|mode| mode.as_str())
+        .unwrap_or("static")
+    {
+        "off" => println!("[axvisor] disabled by axvisor.mode=off"),
+        "control" => {
+            aster_axvisor_host::init_control_mode()
+                .expect("Failed to initialize Axvisor control mode");
+        }
+        "static" => aster_axvisor_host::run_static_mode(),
+        mode => panic!("unsupported axvisor.mode: {mode}; expected off, control, or static"),
+    }
+}
+
 pub(super) fn main() {
     // Initialize the global states for all CPUs.
     ostd::early_println!("OSTD initialized. Preparing components.");
@@ -171,7 +188,7 @@ fn first_kthread() {
     #[cfg(feature = "axvisor")]
     {
         init_axvisor_host_runtime();
-        aster_axvisor_host::run();
+        run_axvisor_host();
     }
 
     print_banner();
@@ -211,3 +228,8 @@ pub(super) fn on_first_process_startup(ctx: &Context) {
 
 static INIT_PATH: Once<String> = Once::new();
 aster_cmdline::define_kv_param!("init", INIT_PATH);
+
+#[cfg(feature = "axvisor")]
+static AXVISOR_MODE: Once<String> = Once::new();
+#[cfg(feature = "axvisor")]
+aster_cmdline::define_kv_param!("axvisor.mode", AXVISOR_MODE);
