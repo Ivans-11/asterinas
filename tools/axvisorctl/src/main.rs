@@ -73,6 +73,14 @@ impl AxvisorMode {
             Self::Off => "off",
         }
     }
+
+    fn extra_kcmd_args(self) -> &'static [&'static str] {
+        match self {
+            Self::Control => &["ostd.log_level=warn", "console=ttyS0"],
+            Self::Off => &["console=ttyS0"],
+            Self::Static => &[],
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -533,6 +541,10 @@ fn build_osdk_command(
         .arg("--initramfs")
         .arg(&initramfs);
 
+    for arg in axvisor_mode.extra_kcmd_args() {
+        command.arg(format!("--kcmd-args={arg}"));
+    }
+
     if let Some(case) = staged_case {
         command.env("AXVISOR_VM_CONFIGS", &case.vmconfig);
     }
@@ -604,9 +616,17 @@ fn build_test_harness(workspace: &Workspace, staged_case: &StagedCase) -> Result
 
 fn build_host_mode_harness(workspace: &Workspace, arch: Arch, mode: AxvisorMode) -> TestHarness {
     let qemu_log_prefix = format!("{}-{}", arch.as_str(), mode.as_str());
-    let success = match mode {
-        AxvisorMode::Control => vec![Regex::new(r"AxVisor control endpoint registered: 1").unwrap()],
-        AxvisorMode::Off => vec![Regex::new(r"disabled by axvisor\.mode=off").unwrap()],
+    let (success, shell_prompt, shell_init_cmd) = match mode {
+        AxvisorMode::Control => (
+            vec![Regex::new(r"(?m)^kvm smoke pass\s*$").unwrap()],
+            Some("~ # ".to_string()),
+            Some("/test/kvm_smoke".to_string()),
+        ),
+        AxvisorMode::Off => (
+            vec![Regex::new(r"disabled by axvisor\.mode=off").unwrap()],
+            None,
+            None,
+        ),
         AxvisorMode::Static => unreachable!("static mode uses guest test harness"),
     };
 
@@ -614,8 +634,8 @@ fn build_host_mode_harness(workspace: &Workspace, arch: Arch, mode: AxvisorMode)
         timeout: Duration::from_secs(120),
         success,
         failure: Vec::new(),
-        shell_prompt: None,
-        shell_init_cmd: None,
+        shell_prompt,
+        shell_init_cmd,
         log_path: workspace
             .logs_dir
             .join(format!("{qemu_log_prefix}.run.log")),

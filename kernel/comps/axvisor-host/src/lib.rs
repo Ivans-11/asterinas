@@ -73,7 +73,7 @@ pub trait KernelTaskRuntime: Sync {
 /// Runtime hook used to expose Axvisor's control endpoint through Asterinas.
 #[cfg(feature = "control")]
 pub trait ControlEndpointRuntime: Sync {
-    /// Registers a host-visible control endpoint such as `/dev/axvisor`.
+    /// Registers a host-visible control endpoint such as `/dev/kvm`.
     fn register_endpoint(&self, spec: control::EndpointSpec) -> AxResult<control::EndpointId>;
 
     /// Unregisters a previously registered host-visible control endpoint.

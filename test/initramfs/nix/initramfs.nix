@@ -1,5 +1,5 @@
 { lib, pkgs, stdenvNoCC, fetchFromGitHub, hostPlatform, writeClosure, busybox
-, benchmark, conformance, regression, dnsServer, }:
+, kvmSmoke, benchmark, conformance, regression, dnsServer, }:
 let
   boot_hello = builtins.path { path = ./../src/boot_hello.sh; };
   init = builtins.path { path = ./../src/init; };
@@ -18,7 +18,7 @@ let
   # Whether the initramfs should include evtest, a common tool to debug input devices (`/dev/input/eventX`)
   is_evtest_included = false;
 
-  all_pkgs = [ busybox etc resolv_conf ]
+  all_pkgs = [ busybox etc resolv_conf kvmSmoke ]
     ++ lib.optionals (benchmark != null) [ benchmark.package ]
     ++ lib.optionals (conformance != null) [ conformance.package ]
     ++ lib.optionals (regression != null) [ regression.package ]
@@ -39,6 +39,7 @@ in stdenvNoCC.mkDerivation {
     ''}
 
     cp ${boot_hello} $out/test/boot_hello.sh
+    cp ${kvmSmoke}/bin/kvm_smoke $out/test/kvm_smoke
     cp ${init} $out/init
 
     cp -r ${etc}/* $out/etc/
