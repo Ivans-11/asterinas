@@ -21,6 +21,9 @@
 #define KVM_SET_USER_MEMORY_REGION IOW(KVMIO, 0x46, sizeof(struct kvm_userspace_memory_region))
 #define KVM_RUN IOC(KVMIO, 0x80)
 #define KVM_GET_MP_STATE IOR(KVMIO, 0x98, sizeof(struct kvm_mp_state))
+#define KVM_GET_ONE_REG IOW(KVMIO, 0xab, sizeof(struct kvm_one_reg))
+#define KVM_SET_ONE_REG IOW(KVMIO, 0xac, sizeof(struct kvm_one_reg))
+#define KVM_GET_REG_LIST IOWR(KVMIO, 0xb0, sizeof(struct kvm_reg_list_header))
 
 #define KVM_EXIT_SHUTDOWN 8
 
@@ -28,7 +31,35 @@
 #define KVM_CAP_NR_VCPUS 9
 #define KVM_CAP_NR_MEMSLOTS 10
 #define KVM_CAP_MAX_VCPUS 66
+#define KVM_CAP_ONE_REG 70
 #define KVM_CAP_IMMEDIATE_EXIT 136
+
+#define KVM_REG_RISCV 0x8000000000000000ULL
+#define KVM_REG_SIZE_U64 0x0030000000000000ULL
+#define KVM_REG_RISCV_CONFIG (0x01ULL << 24)
+#define KVM_REG_RISCV_CORE (0x02ULL << 24)
+#define KVM_REG_RISCV_CSR (0x03ULL << 24)
+#define KVM_REG_RISCV_CSR_GENERAL (0x00ULL << 16)
+#define KVM_REG_RISCV_TIMER (0x04ULL << 24)
+#define KVM_REG_RISCV_CONFIG_REG(reg)                                                                  \
+	(KVM_REG_RISCV | KVM_REG_SIZE_U64 | KVM_REG_RISCV_CONFIG | (reg))
+#define KVM_REG_RISCV_CORE_REG(reg) (KVM_REG_RISCV | KVM_REG_SIZE_U64 | KVM_REG_RISCV_CORE | (reg))
+#define KVM_REG_RISCV_CSR_GENERAL_REG(reg)                                                             \
+	(KVM_REG_RISCV | KVM_REG_SIZE_U64 | KVM_REG_RISCV_CSR | KVM_REG_RISCV_CSR_GENERAL | (reg))
+#define KVM_REG_RISCV_TIMER_REG(reg)                                                                   \
+	(KVM_REG_RISCV | KVM_REG_SIZE_U64 | KVM_REG_RISCV_TIMER | (reg))
+#define KVM_RISCV_BASE_ISA 0x1105ULL
+#define KVM_RISCV_TIMER_FREQUENCY 10000000ULL
+#define KVM_RISCV_TIMER_STATE_OFF 0
+#define KVM_RISCV_TIMER_STATE_ON 1
+#define KVM_RISCV_CONFIG_ISA 0
+#define KVM_RISCV_CONFIG_SATP_MODE 6
+#define KVM_RISCV_CORE_PC 0
+#define KVM_RISCV_CORE_A7 17
+#define KVM_RISCV_CSR_SEPC 4
+#define KVM_RISCV_TIMER_FREQUENCY_INDEX 0
+#define KVM_RISCV_TIMER_COMPARE 2
+#define KVM_RISCV_TIMER_STATE 3
 
 #define AT_FDCWD -100
 #define MAP_SHARED 0x01
@@ -55,6 +86,20 @@ struct kvm_run_header {
 	unsigned char immediate_exit;
 	unsigned char padding1[6];
 	unsigned int exit_reason;
+};
+
+struct kvm_one_reg {
+	unsigned long long id;
+	unsigned long long addr;
+};
+
+struct kvm_reg_list_header {
+	unsigned long long n;
+};
+
+struct kvm_reg_list {
+	unsigned long long n;
+	unsigned long long reg[64];
 };
 
 static unsigned char guest_memory[4096] __attribute__((aligned(4096)));
@@ -144,6 +189,12 @@ static void syscall1_noreturn(long nr, long a0)
 #error "unsupported architecture"
 #endif
 
+#ifndef IOWR
+#define IOWR(type, nr, size)                                                                   \
+	(((IOC_WRITE | IOC_READ) << IOC_DIRSHIFT) | ((size) << IOC_SIZESHIFT) |                 \
+	 ((type) << IOC_TYPESHIFT) | (nr))
+#endif
+
 static long sys_openat(long dirfd, const char *path, long flags)
 {
 	return syscall3(SYS_OPENAT, dirfd, (long)path, flags);
@@ -219,6 +270,60 @@ static int expect_ioctl_errno(long fd, unsigned long request, unsigned long arg,
 	return 0;
 }
 
+static int set_one_reg(long vcpufd, unsigned long long id, unsigned long long value,
+		       const char *name)
+{
+	struct kvm_one_reg one_reg = {
+		.id = id,
+		.addr = (unsigned long long)&value,
+	};
+	return expect_ioctl(vcpufd, KVM_SET_ONE_REG, (long)&one_reg, 0, name);
+}
+
+static int expect_one_reg(long vcpufd, unsigned long long id, unsigned long long expected,
+			  const char *name)
+{
+	unsigned long long value = 0;
+	struct kvm_one_reg one_reg = {
+		.id = id,
+		.addr = (unsigned long long)&value,
+	};
+	if (expect_ioctl(vcpufd, KVM_GET_ONE_REG, (long)&one_reg, 0, name) != 0)
+		return 1;
+	if (value != expected) {
+		puts(name);
+		puts(": unexpected register value\n");
+		return 1;
+	}
+	return 0;
+}
+
+static int expect_reg_list_contains(long vcpufd, unsigned long long first, unsigned long long second)
+{
+	struct kvm_reg_list reg_list;
+	int found_first = 0;
+	int found_second = 0;
+
+	reg_list.n = 64;
+	if (expect_ioctl(vcpufd, KVM_GET_REG_LIST, (long)&reg_list, 0, "KVM_GET_REG_LIST") != 0)
+		return 1;
+	if (reg_list.n > 64) {
+		puts("KVM_GET_REG_LIST returned too many regs\n");
+		return 1;
+	}
+	for (unsigned long long i = 0; i < reg_list.n; i++) {
+		if (reg_list.reg[i] == first)
+			found_first = 1;
+		if (reg_list.reg[i] == second)
+			found_second = 1;
+	}
+	if (!found_first || !found_second) {
+		puts("KVM_GET_REG_LIST missing expected regs\n");
+		return 1;
+	}
+	return 0;
+}
+
 static int main(void)
 {
 	long fd = sys_openat(AT_FDCWD, "/dev/kvm", O_RDWR | O_CLOEXEC);
@@ -240,6 +345,9 @@ static int main(void)
 		return 1;
 	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_NR_MEMSLOTS, 32,
 			 "KVM_CAP_NR_MEMSLOTS") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_ONE_REG, 1,
+			 "KVM_CAP_ONE_REG") != 0)
 		return 1;
 	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_IMMEDIATE_EXIT, 1,
 			 "KVM_CAP_IMMEDIATE_EXIT") != 0)
@@ -290,10 +398,57 @@ static int main(void)
 		puts("unexpected KVM_GET_MP_STATE value\n");
 		return 1;
 	}
+	if (expect_reg_list_contains(vcpufd, KVM_REG_RISCV_CORE_REG(KVM_RISCV_CORE_PC),
+				     KVM_REG_RISCV_CORE_REG(KVM_RISCV_CORE_A7)) != 0)
+		return 1;
+	if (expect_reg_list_contains(vcpufd, KVM_REG_RISCV_CONFIG_REG(KVM_RISCV_CONFIG_ISA),
+				     KVM_REG_RISCV_TIMER_REG(KVM_RISCV_TIMER_FREQUENCY_INDEX)) != 0)
+		return 1;
+	if (expect_one_reg(vcpufd, KVM_REG_RISCV_CONFIG_REG(KVM_RISCV_CONFIG_ISA),
+			   KVM_RISCV_BASE_ISA, "KVM_GET_ONE_REG config isa") != 0)
+		return 1;
+	if (expect_one_reg(vcpufd, KVM_REG_RISCV_CONFIG_REG(KVM_RISCV_CONFIG_SATP_MODE), 9,
+			   "KVM_GET_ONE_REG config satp_mode") != 0)
+		return 1;
+	if (set_one_reg(vcpufd, KVM_REG_RISCV_CSR_GENERAL_REG(KVM_RISCV_CSR_SEPC), 0x240,
+			"KVM_SET_ONE_REG csr sepc") != 0)
+		return 1;
+	if (expect_one_reg(vcpufd, KVM_REG_RISCV_CSR_GENERAL_REG(KVM_RISCV_CSR_SEPC), 0x240,
+			   "KVM_GET_ONE_REG csr sepc") != 0)
+		return 1;
+	if (expect_one_reg(vcpufd, KVM_REG_RISCV_TIMER_REG(KVM_RISCV_TIMER_FREQUENCY_INDEX),
+			   KVM_RISCV_TIMER_FREQUENCY, "KVM_GET_ONE_REG timer frequency") != 0)
+		return 1;
+	if (set_one_reg(vcpufd, KVM_REG_RISCV_TIMER_REG(KVM_RISCV_TIMER_COMPARE), 0x123456,
+			"KVM_SET_ONE_REG timer compare") != 0)
+		return 1;
+	if (expect_one_reg(vcpufd, KVM_REG_RISCV_TIMER_REG(KVM_RISCV_TIMER_COMPARE), 0x123456,
+			   "KVM_GET_ONE_REG timer compare") != 0)
+		return 1;
+	if (expect_one_reg(vcpufd, KVM_REG_RISCV_TIMER_REG(KVM_RISCV_TIMER_STATE),
+			   KVM_RISCV_TIMER_STATE_ON, "KVM_GET_ONE_REG timer state") != 0)
+		return 1;
+	if (set_one_reg(vcpufd, KVM_REG_RISCV_TIMER_REG(KVM_RISCV_TIMER_STATE),
+			KVM_RISCV_TIMER_STATE_OFF, "KVM_SET_ONE_REG timer state off") != 0)
+		return 1;
+	if (expect_one_reg(vcpufd, KVM_REG_RISCV_TIMER_REG(KVM_RISCV_TIMER_STATE),
+			   KVM_RISCV_TIMER_STATE_OFF, "KVM_GET_ONE_REG timer state off") != 0)
+		return 1;
+	if (set_one_reg(vcpufd, KVM_REG_RISCV_CORE_REG(KVM_RISCV_CORE_PC), 0x100,
+			"KVM_SET_ONE_REG pc") != 0)
+		return 1;
+	if (expect_one_reg(vcpufd, KVM_REG_RISCV_CORE_REG(KVM_RISCV_CORE_PC), 0x100,
+			   "KVM_GET_ONE_REG pc") != 0)
+		return 1;
+	if (set_one_reg(vcpufd, KVM_REG_RISCV_CORE_REG(KVM_RISCV_CORE_A7), 8,
+			"KVM_SET_ONE_REG a7") != 0)
+		return 1;
+	if (expect_one_reg(vcpufd, KVM_REG_RISCV_CORE_REG(KVM_RISCV_CORE_A7), 8,
+			   "KVM_GET_ONE_REG a7") != 0)
+		return 1;
 
 	struct kvm_run_header *run_header = (struct kvm_run_header *)run;
-	write_le32(&guest_memory[0], 0x00800893); /* addi a7, zero, 8 */
-	write_le32(&guest_memory[4], 0x00000073); /* ecall */
+	write_le32(&guest_memory[0x100], 0x00000073); /* ecall */
 	run_header->exit_reason = 0xffffffff;
 	if (expect_ioctl(vcpufd, KVM_RUN, 0, 0, "KVM_RUN") != 0)
 		return 1;
