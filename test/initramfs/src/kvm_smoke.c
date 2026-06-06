@@ -2,10 +2,19 @@
 
 #define KVMIO 0xae
 #define IOC(type, nr) (((type) << 8) | (nr))
+#define IOC_WRITE 1UL
+#define IOC_TYPESHIFT 8
+#define IOC_SIZESHIFT 16
+#define IOC_DIRSHIFT 30
+#define IOW(type, nr, size)                                                                    \
+	((IOC_WRITE << IOC_DIRSHIFT) | ((size) << IOC_SIZESHIFT) | ((type) << IOC_TYPESHIFT) |  \
+	 (nr))
 #define KVM_GET_API_VERSION IOC(KVMIO, 0x00)
 #define KVM_CREATE_VM IOC(KVMIO, 0x01)
 #define KVM_CHECK_EXTENSION IOC(KVMIO, 0x03)
 #define KVM_GET_VCPU_MMAP_SIZE IOC(KVMIO, 0x04)
+#define KVM_CREATE_VCPU IOC(KVMIO, 0x41)
+#define KVM_SET_USER_MEMORY_REGION IOW(KVMIO, 0x46, sizeof(struct kvm_userspace_memory_region))
 
 #define KVM_CAP_USER_MEMORY 3
 #define KVM_CAP_NR_VCPUS 9
@@ -17,6 +26,16 @@
 #define ENOTTY 25
 #define O_RDWR 02
 #define O_CLOEXEC 02000000
+
+struct kvm_userspace_memory_region {
+	unsigned int slot;
+	unsigned int flags;
+	unsigned long long guest_phys_addr;
+	unsigned long long memory_size;
+	unsigned long long userspace_addr;
+};
+
+static unsigned char guest_memory[4096] __attribute__((aligned(4096)));
 
 #if defined(__riscv) && __riscv_xlen == 64
 #define SYS_OPENAT 56
@@ -170,6 +189,25 @@ static int main(void)
 	if (expect_ioctl_errno(vmfd, KVM_GET_API_VERSION, 0, ENOTTY,
 			       "VM fd KVM_GET_API_VERSION") != 0)
 		return 1;
+
+	struct kvm_userspace_memory_region memory_region = {
+		.slot = 0,
+		.flags = 0,
+		.guest_phys_addr = 0x100000,
+		.memory_size = sizeof(guest_memory),
+		.userspace_addr = (unsigned long long)guest_memory,
+	};
+	if (expect_ioctl(vmfd, KVM_SET_USER_MEMORY_REGION, (long)&memory_region, 0,
+			 "KVM_SET_USER_MEMORY_REGION") != 0)
+		return 1;
+
+	long vcpufd = sys_ioctl(vmfd, KVM_CREATE_VCPU, 0);
+	if (vcpufd < 0) {
+		puts("KVM_CREATE_VCPU failed\n");
+		return 1;
+	}
+	sys_close(vcpufd);
+
 	sys_close(vmfd);
 
 	sys_close(fd);
