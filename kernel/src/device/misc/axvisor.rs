@@ -16,7 +16,8 @@ use crate::{
     events::IoEvents,
     fs::{
         file::{
-            AccessMode, CreationFlags, FileLike, PerOpenFileOps, StatusFlags, file_table::FdFlags,
+            AccessMode, CreationFlags, FileLike, Mappable, PerOpenFileOps, StatusFlags,
+            file_table::FdFlags,
         },
         pseudofs::AnonInodeFs,
         vfs::{inode::FileOps, path::Path},
@@ -24,6 +25,7 @@ use crate::{
     prelude::*,
     process::signal::{PollHandle, Pollable},
     util::ioctl::RawIoctl,
+    vm::page_cache::{Vmo, VmoOptions},
 };
 
 const KVM_MINOR: u32 = 232;
@@ -79,7 +81,12 @@ impl ControlEndpointRuntime for AxvisorControlEndpointRuntime {
         create_vm_fd(session, ops).map_err(to_ax_error)
     }
 
-    fn create_vcpu_fd(&self, endpoint: EndpointId, session: SessionId) -> AxResult<HostFd> {
+    fn create_vcpu_fd(
+        &self,
+        endpoint: EndpointId,
+        session: SessionId,
+        mmap_size: usize,
+    ) -> AxResult<HostFd> {
         let ops = {
             let registered = KVM_ENDPOINT.lock();
             match *registered {
@@ -88,11 +95,15 @@ impl ControlEndpointRuntime for AxvisorControlEndpointRuntime {
             }
         };
 
-        create_vcpu_fd(session, ops).map_err(to_ax_error)
+        create_vcpu_fd(session, ops, mmap_size).map_err(to_ax_error)
     }
 
     fn read_user(&self, addr: usize, buf: &mut [u8]) -> AxResult {
         read_user(addr, buf).map_err(to_ax_error)
+    }
+
+    fn write_user(&self, addr: usize, buf: &[u8]) -> AxResult {
+        write_user(addr, buf).map_err(to_ax_error)
     }
 }
 
@@ -210,7 +221,7 @@ impl PerOpenFileOps for KvmFile {
         false
     }
 
-    fn mappable(&self) -> Result<crate::fs::file::Mappable> {
+    fn mappable(&self) -> Result<Mappable> {
         if self.ops.mmap.is_none() {
             return_errno_with_message!(Errno::ENODEV, "mmap is not supported by /dev/kvm");
         }
@@ -318,16 +329,19 @@ impl FileLike for KvmVmFile {
 struct KvmVcpuFile {
     session: SessionId,
     ops: ControlOps,
+    run_vmo: Arc<Vmo>,
     pseudo_path: Path,
 }
 
 impl KvmVcpuFile {
-    fn new(session: SessionId, ops: ControlOps) -> Self {
-        Self {
+    fn new(session: SessionId, ops: ControlOps, mmap_size: usize) -> Result<Self> {
+        let run_vmo = VmoOptions::new(mmap_size).alloc()?;
+        Ok(Self {
             session,
             ops,
+            run_vmo,
             pseudo_path: AnonInodeFs::new_path(|_| "anon_inode:[kvm-vcpu]".to_string()),
-        }
+        })
     }
 }
 
@@ -374,6 +388,10 @@ impl FileLike for KvmVcpuFile {
         AccessMode::O_RDWR
     }
 
+    fn mappable(&self) -> Result<Mappable> {
+        Ok(Mappable::Vmo(self.run_vmo.clone()))
+    }
+
     fn path(&self) -> &Path {
         &self.pseudo_path
     }
@@ -409,8 +427,8 @@ fn create_vm_fd(session: SessionId, ops: ControlOps) -> Result<HostFd> {
     create_object_fd(Arc::new(KvmVmFile::new(session, ops)))
 }
 
-fn create_vcpu_fd(session: SessionId, ops: ControlOps) -> Result<HostFd> {
-    create_object_fd(Arc::new(KvmVcpuFile::new(session, ops)))
+fn create_vcpu_fd(session: SessionId, ops: ControlOps, mmap_size: usize) -> Result<HostFd> {
+    create_object_fd(Arc::new(KvmVcpuFile::new(session, ops, mmap_size)?))
 }
 
 fn create_object_fd(file: Arc<dyn FileLike>) -> Result<HostFd> {
@@ -432,6 +450,16 @@ fn read_user(addr: usize, buf: &mut [u8]) -> Result<()> {
         .as_thread_local()
         .ok_or_else(|| Error::with_message(Errno::EINVAL, "current task is not a user thread"))?;
     CurrentUserSpace::new(thread_local).read_bytes(addr, buf)?;
+    Ok(())
+}
+
+fn write_user(addr: usize, buf: &[u8]) -> Result<()> {
+    let task = Task::current()
+        .ok_or_else(|| Error::with_message(Errno::ESRCH, "current task is not available"))?;
+    let thread_local = task
+        .as_thread_local()
+        .ok_or_else(|| Error::with_message(Errno::EINVAL, "current task is not a user thread"))?;
+    CurrentUserSpace::new(thread_local).write_bytes(addr, buf)?;
     Ok(())
 }
 

@@ -91,10 +91,14 @@ pub trait ControlEndpointRuntime: Sync {
         &self,
         endpoint: control::EndpointId,
         session: control::SessionId,
+        mmap_size: usize,
     ) -> AxResult<control::HostFd>;
 
     /// Reads bytes from the current userspace task.
     fn read_user(&self, addr: usize, buf: &mut [u8]) -> AxResult;
+
+    /// Writes bytes into the current userspace task.
+    fn write_user(&self, addr: usize, buf: &[u8]) -> AxResult;
 }
 
 static KERNEL_TASK_RUNTIME: Once<&'static dyn KernelTaskRuntime> = Once::new();
@@ -496,12 +500,17 @@ impl control::ControlIf for ControlIfImpl {
     fn create_vcpu_fd(
         endpoint: control::EndpointId,
         session: control::SessionId,
+        mmap_size: usize,
     ) -> AxResult<control::HostFd> {
-        control_endpoint_runtime().create_vcpu_fd(endpoint, session)
+        control_endpoint_runtime().create_vcpu_fd(endpoint, session, mmap_size)
     }
 
     fn read_user(addr: usize, buf: &mut [u8]) -> AxResult {
         control_endpoint_runtime().read_user(addr, buf)
+    }
+
+    fn write_user(addr: usize, buf: &[u8]) -> AxResult {
+        control_endpoint_runtime().write_user(addr, buf)
     }
 }
 
