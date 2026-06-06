@@ -2,18 +2,24 @@
 
 //! KVM-compatible AxVisor misc-device support.
 
+use core::fmt::Display;
+
 use aster_axvisor_host::{
     AxError, AxErrorKind, AxResult, ControlEndpointRuntime,
-    control::{ControlOps, EndpointId, EndpointSpec, SessionId},
+    control::{ControlOps, EndpointId, EndpointSpec, HostFd, SessionId},
 };
 use device_id::{DeviceId, MinorId};
+use ostd::task::Task;
 
 use crate::{
     device::{Device, DeviceType, DevtmpfsInodeMeta, registry::char},
     events::IoEvents,
     fs::{
-        file::{PerOpenFileOps, StatusFlags},
-        vfs::inode::FileOps,
+        file::{
+            AccessMode, CreationFlags, FileLike, PerOpenFileOps, StatusFlags, file_table::FdFlags,
+        },
+        pseudofs::AnonInodeFs,
+        vfs::{inode::FileOps, path::Path},
     },
     prelude::*,
     process::signal::{PollHandle, Pollable},
@@ -59,6 +65,18 @@ impl ControlEndpointRuntime for AxvisorControlEndpointRuntime {
             }
             _ => Err(AxErrorKind::NotFound.into()),
         }
+    }
+
+    fn create_vm_fd(&self, endpoint: EndpointId, session: SessionId) -> AxResult<HostFd> {
+        let ops = {
+            let registered = KVM_ENDPOINT.lock();
+            match *registered {
+                Some(entry) if entry.id == endpoint => entry.ops,
+                _ => return Err(AxErrorKind::NotFound.into()),
+            }
+        };
+
+        create_vm_fd(session, ops).map_err(to_ax_error)
     }
 }
 
@@ -189,6 +207,109 @@ impl PerOpenFileOps for KvmFile {
         i32::try_from(result)
             .map_err(|_| Error::with_message(Errno::EOVERFLOW, "ioctl return value overflow"))
     }
+}
+
+struct KvmVmFile {
+    session: SessionId,
+    ops: ControlOps,
+    pseudo_path: Path,
+}
+
+impl KvmVmFile {
+    fn new(session: SessionId, ops: ControlOps) -> Self {
+        Self {
+            session,
+            ops,
+            pseudo_path: AnonInodeFs::new_path(|_| "anon_inode:[kvm-vm]".to_string()),
+        }
+    }
+}
+
+impl Drop for KvmVmFile {
+    fn drop(&mut self) {
+        let _ = (self.ops.release)(self.session);
+    }
+}
+
+impl Pollable for KvmVmFile {
+    fn poll(&self, mask: IoEvents, _poller: Option<&mut PollHandle>) -> IoEvents {
+        if let Some(poll) = self.ops.poll {
+            match poll(self.session) {
+                Ok(events) => {
+                    let mut ready = IoEvents::empty();
+                    if events.readable {
+                        ready |= IoEvents::IN;
+                    }
+                    if events.writable {
+                        ready |= IoEvents::OUT;
+                    }
+                    if events.error {
+                        ready |= IoEvents::ERR;
+                    }
+                    ready & mask
+                }
+                Err(_) => IoEvents::ERR & mask,
+            }
+        } else {
+            (IoEvents::IN | IoEvents::OUT) & mask
+        }
+    }
+}
+
+impl FileLike for KvmVmFile {
+    fn ioctl(&self, raw_ioctl: RawIoctl) -> Result<i32> {
+        let result = (self.ops.ioctl)(self.session, raw_ioctl.cmd(), raw_ioctl.arg())
+            .map_err(from_ax_error)?;
+        i32::try_from(result)
+            .map_err(|_| Error::with_message(Errno::EOVERFLOW, "ioctl return value overflow"))
+    }
+
+    fn access_mode(&self) -> AccessMode {
+        AccessMode::O_RDWR
+    }
+
+    fn path(&self) -> &Path {
+        &self.pseudo_path
+    }
+
+    fn dump_proc_fdinfo(self: Arc<Self>, fd_flags: FdFlags) -> Box<dyn Display> {
+        struct FdInfo {
+            inner: Arc<KvmVmFile>,
+            fd_flags: FdFlags,
+        }
+
+        impl Display for FdInfo {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                let mut flags = self.inner.status_flags().bits() | self.inner.access_mode() as u32;
+                if self.fd_flags.contains(FdFlags::CLOEXEC) {
+                    flags |= CreationFlags::O_CLOEXEC.bits();
+                }
+
+                writeln!(f, "pos:\t{}", 0)?;
+                writeln!(f, "flags:\t0{:o}", flags)?;
+                writeln!(f, "mnt_id:\t{}", AnonInodeFs::mount_node().id())?;
+                writeln!(f, "ino:\t{}", AnonInodeFs::shared_inode().ino())
+            }
+        }
+
+        Box::new(FdInfo {
+            inner: self,
+            fd_flags,
+        })
+    }
+}
+
+fn create_vm_fd(session: SessionId, ops: ControlOps) -> Result<HostFd> {
+    let task = Task::current()
+        .ok_or_else(|| Error::with_message(Errno::ESRCH, "current task is not available"))?;
+    let thread_local = task
+        .as_thread_local()
+        .ok_or_else(|| Error::with_message(Errno::EINVAL, "current task is not a user thread"))?;
+    let file_table = thread_local.borrow_file_table();
+
+    let file = Arc::new(KvmVmFile::new(session, ops));
+    let fd = file_table.unwrap().write().insert(file, FdFlags::empty());
+    Ok(fd.into())
 }
 
 fn endpoint_ops() -> Result<ControlOps> {

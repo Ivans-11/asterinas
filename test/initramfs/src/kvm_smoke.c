@@ -3,6 +3,7 @@
 #define KVMIO 0xae
 #define IOC(type, nr) (((type) << 8) | (nr))
 #define KVM_GET_API_VERSION IOC(KVMIO, 0x00)
+#define KVM_CREATE_VM IOC(KVMIO, 0x01)
 #define KVM_CHECK_EXTENSION IOC(KVMIO, 0x03)
 #define KVM_GET_VCPU_MMAP_SIZE IOC(KVMIO, 0x04)
 
@@ -13,6 +14,7 @@
 #define KVM_CAP_IMMEDIATE_EXIT 136
 
 #define AT_FDCWD -100
+#define ENOTTY 25
 #define O_RDWR 02
 #define O_CLOEXEC 02000000
 
@@ -119,6 +121,18 @@ static int expect_ioctl(long fd, unsigned long request, unsigned long arg, long 
 	return 0;
 }
 
+static int expect_ioctl_errno(long fd, unsigned long request, unsigned long arg, long expected_errno,
+			      const char *name)
+{
+	long value = sys_ioctl(fd, request, arg);
+	if (value != -expected_errno) {
+		puts(name);
+		puts(": unexpected errno\n");
+		return 1;
+	}
+	return 0;
+}
+
 static int main(void)
 {
 	long fd = sys_openat(AT_FDCWD, "/dev/kvm", O_RDWR | O_CLOEXEC);
@@ -147,6 +161,16 @@ static int main(void)
 	if (expect_ioctl(fd, KVM_GET_VCPU_MMAP_SIZE, 0, 0x1000, "KVM_GET_VCPU_MMAP_SIZE") !=
 	    0)
 		return 1;
+
+	long vmfd = sys_ioctl(fd, KVM_CREATE_VM, 0);
+	if (vmfd < 0) {
+		puts("KVM_CREATE_VM failed\n");
+		return 1;
+	}
+	if (expect_ioctl_errno(vmfd, KVM_GET_API_VERSION, 0, ENOTTY,
+			       "VM fd KVM_GET_API_VERSION") != 0)
+		return 1;
+	sys_close(vmfd);
 
 	sys_close(fd);
 	puts("kvm smoke pass\n");

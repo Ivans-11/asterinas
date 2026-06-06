@@ -78,6 +78,13 @@ pub trait ControlEndpointRuntime: Sync {
 
     /// Unregisters a previously registered host-visible control endpoint.
     fn unregister_endpoint(&self, id: control::EndpointId) -> AxResult;
+
+    /// Creates a VM object fd owned by the current userspace process.
+    fn create_vm_fd(
+        &self,
+        endpoint: control::EndpointId,
+        session: control::SessionId,
+    ) -> AxResult<control::HostFd>;
 }
 
 static KERNEL_TASK_RUNTIME: Once<&'static dyn KernelTaskRuntime> = Once::new();
@@ -467,6 +474,13 @@ impl control::ControlIf for ControlIfImpl {
 
     fn unregister_endpoint(id: control::EndpointId) -> AxResult {
         control_endpoint_runtime().unregister_endpoint(id)
+    }
+
+    fn create_vm_fd(
+        endpoint: control::EndpointId,
+        session: control::SessionId,
+    ) -> AxResult<control::HostFd> {
+        control_endpoint_runtime().create_vm_fd(endpoint, session)
     }
 }
 
