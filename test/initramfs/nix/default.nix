@@ -32,10 +32,10 @@ in rec {
   };
   regression =
     pkgs.callPackage ./regression { testPlatform = regressionTestPlatform; };
-  kvmSmoke = pkgs.callPackage ./kvm-smoke.nix { };
+  axvisorTests = pkgs.callPackage ./axvisor { };
 
   initramfs = pkgs.callPackage ./initramfs.nix {
-    inherit busybox kvmSmoke;
+    inherit busybox axvisorTests;
     benchmark = if enableBenchmarkTest then benchmark else null;
     conformance = if enableConformanceTest then conformance else null;
     regression = if enableRegressionTest then regression else null;

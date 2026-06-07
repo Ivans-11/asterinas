@@ -1,0 +1,11 @@
+arch = "riscv64"
+case = "lkvm"
+timeout_secs = 180
+success_regex = ["(?m)^lkvm riscv payload pass\\s*$"]
+fail_regex = [
+  "(?i)panic",
+  "(?i)unsupported",
+  "(?i)unable to",
+]
+shell_prompt = "~ # "
+shell_init_cmd = "/test/lkvm run --dev /dev/kvm --nodefaults --console hv --network mode=none --disable-ssaia -c 1 -m 128M -k /test/lkvm_riscv_payload"

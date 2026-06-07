@@ -15,7 +15,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use case::{Arch, LoadedCase, LoadedHost};
+use case::{Arch, LoadedCase, LoadedControlCase, LoadedHost};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use image::ImageStore;
 use regex::Regex;
@@ -53,6 +53,8 @@ struct TestArgs {
     arch: Option<Arch>,
     #[arg(long, required_if_eq("mode", "static"))]
     guest: Option<String>,
+    #[arg(long)]
+    case: Option<String>,
     #[arg(long, value_enum, default_value_t = AxvisorMode::Static)]
     mode: AxvisorMode,
 }
@@ -124,6 +126,14 @@ struct StagedCase {
 
 #[derive(Debug, Clone)]
 struct HostLaunchConfig {
+    scheme: String,
+    features: Vec<String>,
+    rendered_qemu_args: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct StagedControlCase {
+    loaded: LoadedControlCase,
     scheme: String,
     features: Vec<String>,
     rendered_qemu_args: Vec<String>,
@@ -340,6 +350,9 @@ fn test_command(workspace: &Workspace, args: TestArgs) -> Result<()> {
         .guest
         .as_deref()
         .ok_or_else(|| anyhow!("--guest is required for static Axvisor tests"))?;
+    if args.case.is_some() {
+        bail!("--case is only supported for non-static Axvisor tests");
+    }
     let staged_case = stage_case(workspace, args.arch, guest)?;
     let host_launch = HostLaunchConfig {
         scheme: staged_case.scheme.clone(),
@@ -386,6 +399,57 @@ fn test_host_mode(workspace: &Workspace, args: TestArgs) -> Result<()> {
     if args.guest.is_some() {
         bail!("--guest is only supported for static Axvisor tests");
     }
+    if args.mode == AxvisorMode::Off {
+        return test_off_mode(workspace, args);
+    }
+
+    let arch = args.arch.unwrap_or_default();
+    let case_name = args.case.as_deref().unwrap_or("smoke");
+    let staged_case = stage_control_case(workspace, arch, case_name)?;
+    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch)?;
+    let host_launch = HostLaunchConfig {
+        scheme: staged_case.scheme.clone(),
+        features: staged_case.features.clone(),
+        rendered_qemu_args: staged_case.rendered_qemu_args.clone(),
+    };
+    let mut build = build_osdk_command(
+        workspace,
+        arch,
+        initramfs.clone(),
+        Some(&host_launch),
+        None,
+        OsdkMode::Build,
+        args.mode,
+    )?;
+    println!("[axvisorctl] building Axvisor host-mode test target...");
+    let status = build
+        .status()
+        .context("failed to launch cargo osdk build for host-mode test")?;
+    if !status.success() {
+        bail!("cargo osdk build failed with status {status}");
+    }
+
+    let mut invocation = build_osdk_command(
+        workspace,
+        arch,
+        initramfs,
+        Some(&host_launch),
+        None,
+        OsdkMode::Run,
+        args.mode,
+    )?;
+    let harness = build_host_mode_harness(workspace, &staged_case, args.mode)?;
+
+    clear_qemu_logs(workspace)?;
+    run_test_process(&mut invocation, harness)?;
+    archive_qemu_logs(workspace, staged_case.loaded.key())?;
+    Ok(())
+}
+
+fn test_off_mode(workspace: &Workspace, args: TestArgs) -> Result<()> {
+    if args.case.is_some() {
+        bail!("--case is only supported for control Axvisor tests");
+    }
 
     let arch = args.arch.unwrap_or_default();
     let initramfs = initramfs::prepare_initramfs(&workspace.root, arch)?;
@@ -423,11 +487,14 @@ fn test_host_mode(workspace: &Workspace, args: TestArgs) -> Result<()> {
         OsdkMode::Run,
         args.mode,
     )?;
-    let harness = build_host_mode_harness(workspace, arch, args.mode);
+    let harness = build_off_mode_harness(workspace, arch);
 
     clear_qemu_logs(workspace)?;
     run_test_process(&mut invocation, harness)?;
-    archive_qemu_logs(workspace, format!("{}-{}", arch.as_str(), args.mode.as_str()))?;
+    archive_qemu_logs(
+        workspace,
+        format!("{}-{}", arch.as_str(), args.mode.as_str()),
+    )?;
     Ok(())
 }
 
@@ -490,6 +557,30 @@ fn stage_case(workspace: &Workspace, arch: Option<Arch>, guest: &str) -> Result<
     })
 }
 
+fn stage_control_case(workspace: &Workspace, arch: Arch, name: &str) -> Result<StagedControlCase> {
+    let loaded = case::resolve_control_case(&workspace.root, arch, name)?;
+    let mut features = merge_features(
+        &loaded.host.manifest.features,
+        &loaded.manifest.extra_features,
+    );
+    apply_arch_features(loaded.manifest.arch, &mut features)?;
+    let rendered_qemu_args = loaded
+        .host
+        .manifest
+        .host_qemu_args
+        .iter()
+        .chain(loaded.manifest.extra_qemu_args.iter())
+        .map(|arg| render_control_case_token(arg, &loaded.dir, &workspace.root))
+        .collect();
+
+    Ok(StagedControlCase {
+        scheme: loaded.host.manifest.scheme.clone(),
+        features,
+        rendered_qemu_args,
+        loaded,
+    })
+}
+
 #[derive(Debug, Clone, Copy)]
 enum OsdkMode {
     Build,
@@ -537,7 +628,10 @@ fn build_osdk_command(
         .arg(&scheme)
         .arg("--features")
         .arg(&features)
-        .arg(format!("--kcmd-args=axvisor.mode={}", axvisor_mode.as_str()))
+        .arg(format!(
+            "--kcmd-args=axvisor.mode={}",
+            axvisor_mode.as_str()
+        ))
         .arg("--initramfs")
         .arg(&initramfs);
 
@@ -614,28 +708,51 @@ fn build_test_harness(workspace: &Workspace, staged_case: &StagedCase) -> Result
     })
 }
 
-fn build_host_mode_harness(workspace: &Workspace, arch: Arch, mode: AxvisorMode) -> TestHarness {
-    let qemu_log_prefix = format!("{}-{}", arch.as_str(), mode.as_str());
-    let (success, shell_prompt, shell_init_cmd) = match mode {
+fn build_host_mode_harness(
+    workspace: &Workspace,
+    staged_case: &StagedControlCase,
+    mode: AxvisorMode,
+) -> Result<TestHarness> {
+    let qemu_log_prefix = staged_case.loaded.key();
+    let (success, failure, shell_prompt, shell_init_cmd, timeout_secs) = match mode {
         AxvisorMode::Control => (
-            vec![Regex::new(r"(?m)^kvm smoke pass\s*$").unwrap()],
-            Some("~ # ".to_string()),
-            Some("/test/kvm_smoke".to_string()),
+            compile_regex_list("success", &staged_case.loaded.manifest.success_regex)?,
+            compile_regex_list("fail", &staged_case.loaded.manifest.fail_regex)?,
+            staged_case.loaded.manifest.shell_prompt.clone(),
+            staged_case.loaded.manifest.shell_init_cmd.clone(),
+            staged_case.loaded.manifest.timeout_secs,
         ),
-        AxvisorMode::Off => (
-            vec![Regex::new(r"disabled by axvisor\.mode=off").unwrap()],
-            None,
-            None,
-        ),
+        AxvisorMode::Off => unreachable!("off mode uses off test harness"),
         AxvisorMode::Static => unreachable!("static mode uses guest test harness"),
     };
+    if success.is_empty() {
+        bail!(
+            "control case `{}` does not define success_regex; test mode requires an explicit success condition",
+            staged_case.loaded.key()
+        );
+    }
 
-    TestHarness {
-        timeout: Duration::from_secs(120),
+    Ok(TestHarness {
+        timeout: Duration::from_secs(timeout_secs),
         success,
-        failure: Vec::new(),
+        failure,
         shell_prompt,
         shell_init_cmd,
+        log_path: workspace
+            .logs_dir
+            .join(format!("{qemu_log_prefix}.run.log")),
+        qemu_log_prefix,
+    })
+}
+
+fn build_off_mode_harness(workspace: &Workspace, arch: Arch) -> TestHarness {
+    let qemu_log_prefix = format!("{}-{}", arch.as_str(), AxvisorMode::Off.as_str());
+    TestHarness {
+        timeout: Duration::from_secs(120),
+        success: vec![Regex::new(r"disabled by axvisor\.mode=off").unwrap()],
+        failure: Vec::new(),
+        shell_prompt: None,
+        shell_init_cmd: None,
         log_path: workspace
             .logs_dir
             .join(format!("{qemu_log_prefix}.run.log")),
@@ -931,6 +1048,21 @@ fn render_case_token(
         .replace("{case_dir}", &case_dir.to_string_lossy())
         .replace("{guest_dir}", &guest_dir.to_string_lossy())
         .replace("{workspace_root}", &workspace_root.to_string_lossy())
+}
+
+fn render_control_case_token(value: &str, case_dir: &Path, workspace_root: &Path) -> String {
+    value
+        .replace("{case_dir}", &case_dir.to_string_lossy())
+        .replace("{workspace_root}", &workspace_root.to_string_lossy())
+}
+
+fn compile_regex_list(label: &str, patterns: &[String]) -> Result<Vec<Regex>> {
+    patterns
+        .iter()
+        .map(|pattern| {
+            Regex::new(pattern).with_context(|| format!("invalid {label} regex `{pattern}`"))
+        })
+        .collect()
 }
 
 fn stage_host_launch(arch: Arch, host: LoadedHost) -> Result<HostLaunchConfig> {

@@ -1,0 +1,10 @@
+arch = "x86_64"
+case = "smoke"
+timeout_secs = 120
+success_regex = ["(?m)^kvm smoke pass\\s*$"]
+fail_regex = [
+  "(?i)panic",
+  "(?i)KVM_.*failed",
+]
+shell_prompt = "~ # "
+shell_init_cmd = "/test/kvm_smoke"
