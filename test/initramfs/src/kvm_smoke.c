@@ -20,12 +20,17 @@
 #define KVM_CREATE_VCPU IOC(KVMIO, 0x41)
 #define KVM_SET_USER_MEMORY_REGION IOW(KVMIO, 0x46, sizeof(struct kvm_userspace_memory_region))
 #define KVM_RUN IOC(KVMIO, 0x80)
+#define KVM_GET_REGS IOR(KVMIO, 0x81, sizeof(struct kvm_regs))
+#define KVM_SET_REGS IOW(KVMIO, 0x82, sizeof(struct kvm_regs))
+#define KVM_GET_SREGS IOR(KVMIO, 0x83, sizeof(struct kvm_sregs))
+#define KVM_SET_SREGS IOW(KVMIO, 0x84, sizeof(struct kvm_sregs))
 #define KVM_GET_MP_STATE IOR(KVMIO, 0x98, sizeof(struct kvm_mp_state))
 #define KVM_GET_ONE_REG IOW(KVMIO, 0xab, sizeof(struct kvm_one_reg))
 #define KVM_SET_ONE_REG IOW(KVMIO, 0xac, sizeof(struct kvm_one_reg))
 #define KVM_GET_REG_LIST IOWR(KVMIO, 0xb0, sizeof(struct kvm_reg_list_header))
 
 #define KVM_EXIT_SHUTDOWN 8
+#define KVM_EXIT_HLT 5
 
 #define KVM_CAP_USER_MEMORY 3
 #define KVM_CAP_NR_VCPUS 9
@@ -88,6 +93,40 @@ struct kvm_run_header {
 	unsigned int exit_reason;
 };
 
+struct kvm_regs {
+	unsigned long long rax, rbx, rcx, rdx;
+	unsigned long long rsi, rdi, rsp, rbp;
+	unsigned long long r8, r9, r10, r11;
+	unsigned long long r12, r13, r14, r15;
+	unsigned long long rip, rflags;
+};
+
+struct kvm_segment {
+	unsigned long long base;
+	unsigned int limit;
+	unsigned short selector;
+	unsigned char type;
+	unsigned char present, dpl, db, s, l, g, avl;
+	unsigned char unusable;
+	unsigned char padding;
+};
+
+struct kvm_dtable {
+	unsigned long long base;
+	unsigned short limit;
+	unsigned short padding[3];
+};
+
+struct kvm_sregs {
+	struct kvm_segment cs, ds, es, fs, gs, ss;
+	struct kvm_segment tr, ldt;
+	struct kvm_dtable gdt, idt;
+	unsigned long long cr0, cr2, cr3, cr4, cr8;
+	unsigned long long efer;
+	unsigned long long apic_base;
+	unsigned long long interrupt_bitmap[4];
+};
+
 struct kvm_one_reg {
 	unsigned long long id;
 	unsigned long long addr;
@@ -103,6 +142,10 @@ struct kvm_reg_list {
 };
 
 static unsigned char guest_memory[4096] __attribute__((aligned(4096)));
+#if defined(__x86_64__)
+static struct kvm_regs x86_regs;
+static struct kvm_sregs x86_sregs;
+#endif
 
 #if defined(__riscv) && __riscv_xlen == 64
 #define SYS_OPENAT 56
@@ -238,6 +281,7 @@ static void puts(const char *s)
 	sys_write(1, s, str_len(s));
 }
 
+#if defined(__riscv) && __riscv_xlen == 64
 static void write_le32(unsigned char *addr, unsigned int value)
 {
 	addr[0] = value & 0xff;
@@ -245,6 +289,7 @@ static void write_le32(unsigned char *addr, unsigned int value)
 	addr[2] = (value >> 16) & 0xff;
 	addr[3] = (value >> 24) & 0xff;
 }
+#endif
 
 static int expect_ioctl(long fd, unsigned long request, unsigned long arg, long expected,
 			const char *name)
@@ -270,6 +315,7 @@ static int expect_ioctl_errno(long fd, unsigned long request, unsigned long arg,
 	return 0;
 }
 
+#if defined(__riscv) && __riscv_xlen == 64
 static int set_one_reg(long vcpufd, unsigned long long id, unsigned long long value,
 		       const char *name)
 {
@@ -323,6 +369,53 @@ static int expect_reg_list_contains(long vcpufd, unsigned long long first, unsig
 	}
 	return 0;
 }
+#endif
+
+#if defined(__x86_64__)
+static int test_x86_regs(long vcpufd)
+{
+	struct kvm_regs *regs = &x86_regs;
+	struct kvm_sregs *sregs = &x86_sregs;
+	unsigned long long old_cr0;
+	unsigned short old_cs_selector;
+
+	if (expect_ioctl(vcpufd, KVM_GET_REGS, (long)regs, 0, "KVM_GET_REGS") != 0)
+		return 1;
+	regs->rax = 0x123456789abcdef0ULL;
+	regs->rbx = 0x0fedcba987654321ULL;
+	regs->rip = 0x100;
+	regs->rflags = 0x2;
+	if (expect_ioctl(vcpufd, KVM_SET_REGS, (long)regs, 0, "KVM_SET_REGS") != 0)
+		return 1;
+	regs->rax = 0;
+	regs->rbx = 0;
+	regs->rip = 0;
+	if (expect_ioctl(vcpufd, KVM_GET_REGS, (long)regs, 0, "KVM_GET_REGS verify") != 0)
+		return 1;
+	if (regs->rax != 0x123456789abcdef0ULL || regs->rbx != 0x0fedcba987654321ULL ||
+	    regs->rip != 0x100 || regs->rflags != 0x2) {
+		puts("KVM_GET_REGS returned unexpected register state\n");
+		return 1;
+	}
+
+	if (expect_ioctl(vcpufd, KVM_GET_SREGS, (long)sregs, 0, "KVM_GET_SREGS") != 0)
+		return 1;
+	old_cr0 = sregs->cr0;
+	old_cs_selector = sregs->cs.selector;
+	if (expect_ioctl(vcpufd, KVM_SET_SREGS, (long)sregs, 0, "KVM_SET_SREGS") != 0)
+		return 1;
+	sregs->cr0 = 0;
+	sregs->cs.selector = 0xffff;
+	if (expect_ioctl(vcpufd, KVM_GET_SREGS, (long)sregs, 0, "KVM_GET_SREGS verify") != 0)
+		return 1;
+	if (sregs->cr0 != old_cr0 || sregs->cs.selector != old_cs_selector) {
+		puts("KVM_GET_SREGS returned unexpected special register state\n");
+		return 1;
+	}
+
+	return 0;
+}
+#endif
 
 static int main(void)
 {
@@ -346,9 +439,13 @@ static int main(void)
 	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_NR_MEMSLOTS, 32,
 			 "KVM_CAP_NR_MEMSLOTS") != 0)
 		return 1;
-	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_ONE_REG, 1,
-			 "KVM_CAP_ONE_REG") != 0)
+#if defined(__riscv) && __riscv_xlen == 64
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_ONE_REG, 1, "KVM_CAP_ONE_REG") != 0)
 		return 1;
+#elif defined(__x86_64__)
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_ONE_REG, 0, "KVM_CAP_ONE_REG") != 0)
+		return 1;
+#endif
 	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_IMMEDIATE_EXIT, 1,
 			 "KVM_CAP_IMMEDIATE_EXIT") != 0)
 		return 1;
@@ -398,6 +495,7 @@ static int main(void)
 		puts("unexpected KVM_GET_MP_STATE value\n");
 		return 1;
 	}
+#if defined(__riscv) && __riscv_xlen == 64
 	if (expect_reg_list_contains(vcpufd, KVM_REG_RISCV_CORE_REG(KVM_RISCV_CORE_PC),
 				     KVM_REG_RISCV_CORE_REG(KVM_RISCV_CORE_A7)) != 0)
 		return 1;
@@ -456,6 +554,20 @@ static int main(void)
 		puts("KVM_RUN unexpected exit_reason\n");
 		return 1;
 	}
+#elif defined(__x86_64__)
+	if (test_x86_regs(vcpufd) != 0)
+		return 1;
+
+	struct kvm_run_header *run_header = (struct kvm_run_header *)run;
+	guest_memory[0x100] = 0xf4; /* hlt */
+	run_header->exit_reason = 0xffffffff;
+	if (expect_ioctl(vcpufd, KVM_RUN, 0, 0, "KVM_RUN") != 0)
+		return 1;
+	if (run_header->exit_reason != KVM_EXIT_HLT) {
+		puts("KVM_RUN unexpected exit_reason\n");
+		return 1;
+	}
+#endif
 	sys_close(vcpufd);
 
 	sys_close(vmfd);
