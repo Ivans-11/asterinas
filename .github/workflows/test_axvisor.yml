@@ -7,6 +7,7 @@ on:
 
 jobs:
   axvisor-test:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     container:
       image: asterinas/asterinas:0.17.2-20260523
@@ -21,13 +22,40 @@ jobs:
       matrix:
         include:
           - arch: x86_64
+            mode: static
             guest: nimbos
+            case: ""
+            name: x86_64-static-nimbos
           - arch: x86_64
+            mode: static
             guest: linux
+            case: ""
+            name: x86_64-static-linux
+          - arch: x86_64
+            mode: control
+            guest: ""
+            case: smoke
+            name: x86_64-control-smoke
           - arch: riscv64
+            mode: static
             guest: arceos
+            case: ""
+            name: riscv64-static-arceos
           - arch: riscv64
+            mode: static
             guest: linux
+            case: ""
+            name: riscv64-static-linux
+          - arch: riscv64
+            mode: control
+            guest: ""
+            case: smoke
+            name: riscv64-control-smoke
+          - arch: riscv64
+            mode: control
+            guest: ""
+            case: lkvm-linux
+            name: riscv64-control-lkvm-linux
     steps:
       - name: Free disk space
         run: rm -rf /usr/lib/google-cloud-sdk/* /usr/local/lib/android/* /usr/share/dotnet/*
@@ -47,18 +75,24 @@ jobs:
           usermod -aG kvm "$(id -un)"
           ls -l /dev/kvm
 
-      - name: Run Axvisor test (${{ matrix.arch }}/${{ matrix.guest }})
+      - name: Run Axvisor test (${{ matrix.name }})
         run: |
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            sg kvm -c "./tools/axvisor test --arch '${{ matrix.arch }}' --guest '${{ matrix.guest }}'"
+          if [ "${{ matrix.mode }}" = "static" ]; then
+            cmd="./tools/axvisor test --arch '${{ matrix.arch }}' --mode static --guest '${{ matrix.guest }}'"
           else
-            ./tools/axvisor test --arch "${{ matrix.arch }}" --guest "${{ matrix.guest }}"
+            cmd="./tools/axvisor test --arch '${{ matrix.arch }}' --mode control --case '${{ matrix.case }}'"
+          fi
+
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            sg kvm -c "$cmd"
+          else
+            eval "$cmd"
           fi
 
       - name: Upload Axvisor logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: axvisor-logs-${{ matrix.arch }}-${{ matrix.guest }}
+          name: axvisor-logs-${{ matrix.name }}
           path: target/axvisor/logs/
           if-no-files-found: ignore

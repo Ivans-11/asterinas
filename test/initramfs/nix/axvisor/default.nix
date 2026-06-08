@@ -2,7 +2,6 @@
 let
   kvmSmoke = callPackage ./kvm-smoke.nix { };
   lkvm = callPackage ./lkvm.nix { };
-  lkvmRiscvPayload = callPackage ./lkvm-riscv-payload.nix { };
   commonTestFiles = [
     {
       package = kvmSmoke;
@@ -16,11 +15,6 @@ let
         package = lkvm;
         source = "${lkvm}/bin/lkvm";
         target = "lkvm";
-      }
-      {
-        package = lkvmRiscvPayload;
-        source = "${lkvmRiscvPayload}/bin/lkvm_riscv_payload";
-        target = "lkvm_riscv_payload";
       }
     ];
   };

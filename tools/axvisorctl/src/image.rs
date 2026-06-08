@@ -15,8 +15,11 @@ use xz2::read::XzDecoder;
 
 const DEFAULT_REGISTRY_URL: &str =
     "https://raw.githubusercontent.com/rcore-os/tgosimages/refs/heads/main/registry/default.toml";
-const DEFAULT_FALLBACK_REGISTRY_URL: &str =
-    "https://raw.githubusercontent.com/rcore-os/tgosimages/refs/heads/main/registry/v0.0.25.toml";
+// Pinned because upstream mutable versioned registries may drop legacy images.
+const DEFAULT_FALLBACK_REGISTRY_URL: &str = concat!(
+    "https://raw.githubusercontent.com/rcore-os/tgosimages/",
+    "eaa2672aabc87cc2bad356591f4163b6ce88d590/registry/v0.0.25.toml"
+);
 const AUTO_SYNC_THRESHOLD_SECS: u64 = 60 * 60 * 24 * 7;
 const REGISTRY_FILENAME: &str = "images.toml";
 const LAST_SYNC_FILENAME: &str = ".last_sync";
@@ -55,9 +58,23 @@ impl ImageStore {
         };
 
         let registry = registry.expect("registry must exist here");
-        let entry = registry
-            .find_latest(name)
-            .ok_or_else(|| anyhow!("image `{name}` not found in local registry"))?;
+        let fallback_registry_url = fallback_registry_url();
+        let fallback_registry;
+        let entry = if let Some(entry) = registry.find_latest(name) {
+            entry
+        } else {
+            fallback_registry = ImageRegistry::fetch_with_includes(&self.client, &fallback_registry_url)
+                .with_context(|| {
+                    format!(
+                        "image `{name}` not found in latest registry and failed to fetch fallback registry {fallback_registry_url}"
+                    )
+                })?;
+            fallback_registry.find_latest(name).ok_or_else(|| {
+                anyhow!(
+                    "image `{name}` not found in latest registry or fallback registry {fallback_registry_url}"
+                )
+            })?
+        };
         if extracted_archive_matches(&extract_dir, &entry.sha256)? {
             return Ok(extract_dir);
         }
@@ -93,8 +110,7 @@ impl ImageStore {
     }
 
     fn sync_registry(&self) -> Result<()> {
-        let fallback_registry = std::env::var("AXVISOR_REGISTRY_FALLBACK_URL")
-            .unwrap_or_else(|_| DEFAULT_FALLBACK_REGISTRY_URL.to_string());
+        let fallback_registry = fallback_registry_url();
         let source =
             resolve_bootstrap_source(&self.client, DEFAULT_REGISTRY_URL, &fallback_registry)?;
         let registry = ImageRegistry::fetch_with_includes(&self.client, &source.url)?;
@@ -154,6 +170,11 @@ impl ImageStore {
         })?;
         Ok(())
     }
+}
+
+fn fallback_registry_url() -> String {
+    std::env::var("AXVISOR_REGISTRY_FALLBACK_URL")
+        .unwrap_or_else(|_| DEFAULT_FALLBACK_REGISTRY_URL.to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
