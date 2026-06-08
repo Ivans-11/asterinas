@@ -1,0 +1,27 @@
+arch = "riscv64"
+case = "lkvm-linux"
+image = "qemu_riscv64_linux"
+payload_files = ["qemu-riscv64", "initramfs.cpio.gz", "rootfs.img"]
+timeout_secs = 300
+success_regex = ["(?m)^guest test pass!\\s*$"]
+fail_regex = [
+  "(?i)\\bpanic(?:ked)?\\b",
+  "(?i)kernel panic",
+  "(?i)login incorrect",
+  "(?i)permission denied",
+  "(?i)unable to",
+]
+extra_qemu_args = [
+  "-drive",
+  "if=none,format=raw,id=lkvm_linux_payload,file={control_payload_image}",
+  "-device",
+  "virtio-blk-device,drive=lkvm_linux_payload",
+]
+
+[[interactions]]
+expect = "~ # "
+send = "umount /ext2 2>/dev/null; mount -t ext2 /dev/vda /ext2 && /test/lkvm run --dev /dev/kvm --nodefaults --console serial --virtio-transport mmio --network mode=none --disable-ssaia -c 1 -m 256M -k /ext2/qemu-riscv64 -i /ext2/initramfs.cpio.gz -d /ext2/rootfs.img -p 'earlycon=sbi console=ttyS0,115200 init=/init root=/dev/vda rw'"
+
+[[interactions]]
+expect = "~ # "
+send = "echo \"guest test pass!\""

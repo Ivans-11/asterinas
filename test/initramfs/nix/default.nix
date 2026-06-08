@@ -32,7 +32,7 @@ in rec {
   };
   regression =
     pkgs.callPackage ./regression { testPlatform = regressionTestPlatform; };
-  axvisorTests = pkgs.callPackage ./axvisor { };
+  axvisorTests = pkgs.callPackage ./axvisor { targetArch = target; };
 
   initramfs = pkgs.callPackage ./initramfs.nix {
     inherit busybox axvisorTests;

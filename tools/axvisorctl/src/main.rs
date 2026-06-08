@@ -1,4 +1,5 @@
 mod case;
+mod control;
 mod image;
 mod initramfs;
 mod osdk;
@@ -15,10 +16,11 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use case::{Arch, LoadedCase, LoadedControlCase, LoadedHost};
+use case::{Arch, LoadedCase, LoadedHost};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use image::ImageStore;
 use regex::Regex;
+use serde::Deserialize;
 
 const MATCH_DRAIN_DURATION: Duration = Duration::from_millis(500);
 const MAX_MATCH_WINDOW_BYTES: usize = 2048;
@@ -48,27 +50,27 @@ struct RunArgs {
 }
 
 #[derive(Args)]
-struct TestArgs {
+pub(crate) struct TestArgs {
     #[arg(long)]
-    arch: Option<Arch>,
+    pub(crate) arch: Option<Arch>,
     #[arg(long, required_if_eq("mode", "static"))]
-    guest: Option<String>,
+    pub(crate) guest: Option<String>,
     #[arg(long)]
-    case: Option<String>,
+    pub(crate) case: Option<String>,
     #[arg(long, value_enum, default_value_t = AxvisorMode::Static)]
-    mode: AxvisorMode,
+    pub(crate) mode: AxvisorMode,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "snake_case")]
-enum AxvisorMode {
+pub(crate) enum AxvisorMode {
     Static,
     Control,
     Off,
 }
 
 impl AxvisorMode {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Static => "static",
             Self::Control => "control",
@@ -76,7 +78,7 @@ impl AxvisorMode {
         }
     }
 
-    fn extra_kcmd_args(self) -> &'static [&'static str] {
+    pub(crate) fn extra_kcmd_args(self) -> &'static [&'static str] {
         match self {
             Self::Control => &["ostd.log_level=warn", "console=ttyS0"],
             Self::Off => &["console=ttyS0"],
@@ -86,13 +88,13 @@ impl AxvisorMode {
 }
 
 #[derive(Debug, Clone)]
-struct Workspace {
-    root: PathBuf,
-    target_dir: PathBuf,
-    images_dir: PathBuf,
-    case_stage_root: PathBuf,
-    logs_dir: PathBuf,
-    default_vdso_dir: PathBuf,
+pub(crate) struct Workspace {
+    pub(crate) root: PathBuf,
+    pub(crate) target_dir: PathBuf,
+    pub(crate) images_dir: PathBuf,
+    pub(crate) case_stage_root: PathBuf,
+    pub(crate) logs_dir: PathBuf,
+    pub(crate) default_vdso_dir: PathBuf,
 }
 
 impl Workspace {
@@ -125,29 +127,29 @@ struct StagedCase {
 }
 
 #[derive(Debug, Clone)]
-struct HostLaunchConfig {
-    scheme: String,
-    features: Vec<String>,
-    rendered_qemu_args: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-struct StagedControlCase {
-    loaded: LoadedControlCase,
-    scheme: String,
-    features: Vec<String>,
-    rendered_qemu_args: Vec<String>,
+pub(crate) struct HostLaunchConfig {
+    pub(crate) scheme: String,
+    pub(crate) features: Vec<String>,
+    pub(crate) rendered_qemu_args: Vec<String>,
 }
 
 #[derive(Debug)]
-struct TestHarness {
-    timeout: Duration,
-    success: Vec<Regex>,
-    failure: Vec<Regex>,
-    shell_prompt: Option<String>,
-    shell_init_cmd: Option<String>,
-    log_path: PathBuf,
-    qemu_log_prefix: String,
+pub(crate) struct TestHarness {
+    pub(crate) timeout: Duration,
+    pub(crate) success: Vec<Regex>,
+    pub(crate) failure: Vec<Regex>,
+    pub(crate) shell_prompt: Option<String>,
+    pub(crate) shell_init_cmd: Option<String>,
+    pub(crate) interactions: Vec<HarnessInteraction>,
+    pub(crate) log_path: PathBuf,
+    pub(crate) qemu_log_prefix: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct HarnessInteraction {
+    pub(crate) expect: String,
+    pub(crate) send: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,44 +234,59 @@ impl ByteStreamMatcher {
     }
 }
 
-struct ShellAutoInitMatcher {
-    shell_prompt: String,
-    shell_init_cmd: Vec<u8>,
-    history: Vec<u8>,
-    triggered: bool,
+struct InteractionStep {
+    expect: String,
+    send: Vec<u8>,
 }
 
-impl ShellAutoInitMatcher {
-    fn new(shell_prompt: Option<String>, shell_init_cmd: Option<String>) -> Option<Self> {
-        match (shell_prompt, shell_init_cmd) {
-            (Some(shell_prompt), Some(shell_init_cmd)) => Some(Self {
-                history: Vec::with_capacity(shell_prompt.len().max(64)),
-                shell_prompt,
-                shell_init_cmd: prepare_shell_init_cmd(&shell_init_cmd),
-                triggered: false,
-            }),
-            _ => None,
+struct InteractionMatcher {
+    steps: Vec<InteractionStep>,
+    history: Vec<u8>,
+    next_step: usize,
+}
+
+impl InteractionMatcher {
+    fn new(
+        shell_prompt: Option<String>,
+        shell_init_cmd: Option<String>,
+        interactions: Vec<HarnessInteraction>,
+    ) -> Self {
+        let mut steps = Vec::new();
+        if let (Some(expect), Some(send)) = (shell_prompt, shell_init_cmd) {
+            steps.push(InteractionStep {
+                expect,
+                send: prepare_shell_init_cmd(&send),
+            });
+        }
+        steps.extend(interactions.into_iter().map(|interaction| InteractionStep {
+            expect: interaction.expect,
+            send: prepare_shell_init_cmd(&interaction.send),
+        }));
+
+        Self {
+            steps,
+            history: Vec::with_capacity(MAX_MATCH_WINDOW_BYTES),
+            next_step: 0,
         }
     }
 
     fn observe_byte(&mut self, byte: u8) -> Option<Vec<u8>> {
-        if self.triggered {
-            return None;
-        }
-
+        let step = self.steps.get(self.next_step)?;
         self.history.push(byte);
-        let max_len = self.shell_prompt.len().max(64) * 8;
-        if self.history.len() > max_len {
-            let excess = self.history.len() - max_len;
+        if self.history.len() > MAX_MATCH_WINDOW_BYTES {
+            let excess = self.history.len() - MAX_MATCH_WINDOW_BYTES;
             self.history.drain(..excess);
         }
 
-        if String::from_utf8_lossy(&self.history).contains(&self.shell_prompt) {
-            self.triggered = true;
-            Some(self.shell_init_cmd.clone())
-        } else {
-            None
+        let text = strip_ansi_escape_sequences(&String::from_utf8_lossy(&self.history));
+        if !text.contains(&step.expect) {
+            return None;
         }
+
+        let command = step.send.clone();
+        self.next_step += 1;
+        self.history.clear();
+        Some(command)
     }
 }
 
@@ -343,7 +360,13 @@ fn test_command(workspace: &Workspace, args: TestArgs) -> Result<()> {
     fs::create_dir_all(&workspace.target_dir)
         .with_context(|| format!("failed to create {}", workspace.target_dir.display()))?;
     if args.mode != AxvisorMode::Static {
-        return test_host_mode(workspace, args);
+        if args.guest.is_some() {
+            bail!("--guest is only supported for static Axvisor tests");
+        }
+        if args.mode == AxvisorMode::Off {
+            return test_off_mode(workspace, args);
+        }
+        return control::test(workspace, args);
     }
 
     let guest = args
@@ -388,57 +411,6 @@ fn test_command(workspace: &Workspace, args: TestArgs) -> Result<()> {
         args.mode,
     )?;
     let harness = build_test_harness(workspace, &staged_case)?;
-
-    clear_qemu_logs(workspace)?;
-    run_test_process(&mut invocation, harness)?;
-    archive_qemu_logs(workspace, staged_case.loaded.key())?;
-    Ok(())
-}
-
-fn test_host_mode(workspace: &Workspace, args: TestArgs) -> Result<()> {
-    if args.guest.is_some() {
-        bail!("--guest is only supported for static Axvisor tests");
-    }
-    if args.mode == AxvisorMode::Off {
-        return test_off_mode(workspace, args);
-    }
-
-    let arch = args.arch.unwrap_or_default();
-    let case_name = args.case.as_deref().unwrap_or("smoke");
-    let staged_case = stage_control_case(workspace, arch, case_name)?;
-    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch)?;
-    let host_launch = HostLaunchConfig {
-        scheme: staged_case.scheme.clone(),
-        features: staged_case.features.clone(),
-        rendered_qemu_args: staged_case.rendered_qemu_args.clone(),
-    };
-    let mut build = build_osdk_command(
-        workspace,
-        arch,
-        initramfs.clone(),
-        Some(&host_launch),
-        None,
-        OsdkMode::Build,
-        args.mode,
-    )?;
-    println!("[axvisorctl] building Axvisor host-mode test target...");
-    let status = build
-        .status()
-        .context("failed to launch cargo osdk build for host-mode test")?;
-    if !status.success() {
-        bail!("cargo osdk build failed with status {status}");
-    }
-
-    let mut invocation = build_osdk_command(
-        workspace,
-        arch,
-        initramfs,
-        Some(&host_launch),
-        None,
-        OsdkMode::Run,
-        args.mode,
-    )?;
-    let harness = build_host_mode_harness(workspace, &staged_case, args.mode)?;
 
     clear_qemu_logs(workspace)?;
     run_test_process(&mut invocation, harness)?;
@@ -557,37 +529,13 @@ fn stage_case(workspace: &Workspace, arch: Option<Arch>, guest: &str) -> Result<
     })
 }
 
-fn stage_control_case(workspace: &Workspace, arch: Arch, name: &str) -> Result<StagedControlCase> {
-    let loaded = case::resolve_control_case(&workspace.root, arch, name)?;
-    let mut features = merge_features(
-        &loaded.host.manifest.features,
-        &loaded.manifest.extra_features,
-    );
-    apply_arch_features(loaded.manifest.arch, &mut features)?;
-    let rendered_qemu_args = loaded
-        .host
-        .manifest
-        .host_qemu_args
-        .iter()
-        .chain(loaded.manifest.extra_qemu_args.iter())
-        .map(|arg| render_control_case_token(arg, &loaded.dir, &workspace.root))
-        .collect();
-
-    Ok(StagedControlCase {
-        scheme: loaded.host.manifest.scheme.clone(),
-        features,
-        rendered_qemu_args,
-        loaded,
-    })
-}
-
 #[derive(Debug, Clone, Copy)]
-enum OsdkMode {
+pub(crate) enum OsdkMode {
     Build,
     Run,
 }
 
-fn build_osdk_command(
+pub(crate) fn build_osdk_command(
     workspace: &Workspace,
     arch: Arch,
     initramfs: PathBuf,
@@ -701,43 +649,7 @@ fn build_test_harness(workspace: &Workspace, staged_case: &StagedCase) -> Result
         failure,
         shell_prompt: staged_case.loaded.manifest.shell_prompt.clone(),
         shell_init_cmd: staged_case.loaded.manifest.shell_init_cmd.clone(),
-        log_path: workspace
-            .logs_dir
-            .join(format!("{qemu_log_prefix}.run.log")),
-        qemu_log_prefix,
-    })
-}
-
-fn build_host_mode_harness(
-    workspace: &Workspace,
-    staged_case: &StagedControlCase,
-    mode: AxvisorMode,
-) -> Result<TestHarness> {
-    let qemu_log_prefix = staged_case.loaded.key();
-    let (success, failure, shell_prompt, shell_init_cmd, timeout_secs) = match mode {
-        AxvisorMode::Control => (
-            compile_regex_list("success", &staged_case.loaded.manifest.success_regex)?,
-            compile_regex_list("fail", &staged_case.loaded.manifest.fail_regex)?,
-            staged_case.loaded.manifest.shell_prompt.clone(),
-            staged_case.loaded.manifest.shell_init_cmd.clone(),
-            staged_case.loaded.manifest.timeout_secs,
-        ),
-        AxvisorMode::Off => unreachable!("off mode uses off test harness"),
-        AxvisorMode::Static => unreachable!("static mode uses guest test harness"),
-    };
-    if success.is_empty() {
-        bail!(
-            "control case `{}` does not define success_regex; test mode requires an explicit success condition",
-            staged_case.loaded.key()
-        );
-    }
-
-    Ok(TestHarness {
-        timeout: Duration::from_secs(timeout_secs),
-        success,
-        failure,
-        shell_prompt,
-        shell_init_cmd,
+        interactions: staged_case.loaded.manifest.interactions.clone(),
         log_path: workspace
             .logs_dir
             .join(format!("{qemu_log_prefix}.run.log")),
@@ -753,6 +665,7 @@ fn build_off_mode_harness(workspace: &Workspace, arch: Arch) -> TestHarness {
         failure: Vec::new(),
         shell_prompt: None,
         shell_init_cmd: None,
+        interactions: Vec::new(),
         log_path: workspace
             .logs_dir
             .join(format!("{qemu_log_prefix}.run.log")),
@@ -760,13 +673,14 @@ fn build_off_mode_harness(workspace: &Workspace, arch: Arch) -> TestHarness {
     }
 }
 
-fn run_test_process(command: &mut Command, harness: TestHarness) -> Result<()> {
+pub(crate) fn run_test_process(command: &mut Command, harness: TestHarness) -> Result<()> {
     let TestHarness {
         timeout,
         success,
         failure,
         shell_prompt,
         shell_init_cmd,
+        interactions,
         log_path,
         qemu_log_prefix,
     } = harness;
@@ -809,7 +723,8 @@ fn run_test_process(command: &mut Command, harness: TestHarness) -> Result<()> {
 
     let start = Instant::now();
     let mut matcher = ByteStreamMatcher::new(success, failure);
-    let mut shell_auto_init = ShellAutoInitMatcher::new(shell_prompt, shell_init_cmd);
+    let mut interaction_matcher =
+        InteractionMatcher::new(shell_prompt, shell_init_cmd, interactions);
     let mut stream_closed = 0usize;
 
     loop {
@@ -839,19 +754,13 @@ fn run_test_process(command: &mut Command, harness: TestHarness) -> Result<()> {
                     log_file.flush().ok();
 
                     for byte in bytes {
-                        if let Some(shell_auto_init) = shell_auto_init.as_mut()
-                            && let Some(command) = shell_auto_init.observe_byte(byte)
+                        if let Some(command) = interaction_matcher.observe_byte(byte)
                             && let Some(child_stdin) = stdin.as_mut()
                         {
                             child_stdin
                                 .write_all(&command)
                                 .context("failed to write shell init command")?;
                             child_stdin.flush().ok();
-                            let printable = String::from_utf8_lossy(&command);
-                            println!(
-                                "[axvisorctl] injected guest test command: {}",
-                                printable.trim_end()
-                            );
                         }
 
                         let _ = matcher.observe_byte(byte);
@@ -1050,21 +959,6 @@ fn render_case_token(
         .replace("{workspace_root}", &workspace_root.to_string_lossy())
 }
 
-fn render_control_case_token(value: &str, case_dir: &Path, workspace_root: &Path) -> String {
-    value
-        .replace("{case_dir}", &case_dir.to_string_lossy())
-        .replace("{workspace_root}", &workspace_root.to_string_lossy())
-}
-
-fn compile_regex_list(label: &str, patterns: &[String]) -> Result<Vec<Regex>> {
-    patterns
-        .iter()
-        .map(|pattern| {
-            Regex::new(pattern).with_context(|| format!("invalid {label} regex `{pattern}`"))
-        })
-        .collect()
-}
-
 fn stage_host_launch(arch: Arch, host: LoadedHost) -> Result<HostLaunchConfig> {
     let mut features = host.manifest.features;
     apply_arch_features(arch, &mut features)?;
@@ -1150,7 +1044,7 @@ fn remove_path(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn clear_qemu_logs(workspace: &Workspace) -> Result<()> {
+pub(crate) fn clear_qemu_logs(workspace: &Workspace) -> Result<()> {
     for name in ["qemu.log", "qemu-serial.log"] {
         let path = workspace.root.join(name);
         if path.exists() {
@@ -1161,7 +1055,7 @@ fn clear_qemu_logs(workspace: &Workspace) -> Result<()> {
     Ok(())
 }
 
-fn archive_qemu_logs(workspace: &Workspace, prefix: String) -> Result<()> {
+pub(crate) fn archive_qemu_logs(workspace: &Workspace, prefix: String) -> Result<()> {
     fs::create_dir_all(&workspace.logs_dir)
         .with_context(|| format!("failed to create {}", workspace.logs_dir.display()))?;
     for name in ["qemu.log", "qemu-serial.log"] {

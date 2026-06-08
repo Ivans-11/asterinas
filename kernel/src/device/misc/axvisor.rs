@@ -23,7 +23,7 @@ use crate::{
     fs::{
         file::{
             AccessMode, CreationFlags, FileLike, Mappable, PerOpenFileOps, StatusFlags,
-            file_table::FdFlags,
+            file_table::{FdFlags, FileDesc},
         },
         pseudofs::AnonInodeFs,
         vfs::{inode::FileOps, path::Path},
@@ -112,12 +112,20 @@ impl ControlEndpointRuntime for AxvisorControlEndpointRuntime {
         write_vcpu_run_page(session, offset, buf).map_err(to_ax_error)
     }
 
+    fn read_vcpu_run_page(&self, session: SessionId, offset: usize, buf: &mut [u8]) -> AxResult {
+        read_vcpu_run_page(session, offset, buf).map_err(to_ax_error)
+    }
+
     fn read_user(&self, addr: usize, buf: &mut [u8]) -> AxResult {
         read_user(addr, buf).map_err(to_ax_error)
     }
 
     fn write_user(&self, addr: usize, buf: &[u8]) -> AxResult {
         write_user(addr, buf).map_err(to_ax_error)
+    }
+
+    fn signal_eventfd(&self, fd: HostFd) -> AxResult {
+        signal_eventfd(fd).map_err(to_ax_error)
     }
 
     fn acquire_user_memory(
@@ -501,6 +509,28 @@ fn write_user(addr: usize, buf: &[u8]) -> Result<()> {
     Ok(())
 }
 
+fn signal_eventfd(fd: HostFd) -> Result<()> {
+    let task = Task::current()
+        .ok_or_else(|| Error::with_message(Errno::ESRCH, "current task is not available"))?;
+    let thread_local = task
+        .as_thread_local()
+        .ok_or_else(|| Error::with_message(Errno::EINVAL, "current task is not a user thread"))?;
+    let file_table = thread_local.borrow_file_table();
+    let file = file_table
+        .unwrap()
+        .read()
+        .get_file(FileDesc::try_from(fd)?)
+        .cloned()?;
+
+    let value = 1u64.to_ne_bytes();
+    let mut reader = VmReader::from(value.as_slice()).to_fallible();
+    let written = file.write(&mut reader)?;
+    if written != value.len() {
+        return_errno_with_message!(Errno::EIO, "short eventfd write");
+    }
+    Ok(())
+}
+
 fn write_vcpu_run_page(session: SessionId, offset: usize, buf: &[u8]) -> Result<()> {
     let run_vmo = VCPU_RUN_PAGES
         .lock()
@@ -508,6 +538,16 @@ fn write_vcpu_run_page(session: SessionId, offset: usize, buf: &[u8]) -> Result<
         .cloned()
         .ok_or_else(|| Error::with_message(Errno::ENOENT, "vCPU run page not found"))?;
     run_vmo.write(offset, &mut VmReader::from(buf).to_fallible())?;
+    Ok(())
+}
+
+fn read_vcpu_run_page(session: SessionId, offset: usize, buf: &mut [u8]) -> Result<()> {
+    let run_vmo = VCPU_RUN_PAGES
+        .lock()
+        .get(&session)
+        .cloned()
+        .ok_or_else(|| Error::with_message(Errno::ENOENT, "vCPU run page not found"))?;
+    run_vmo.read(offset, &mut VmWriter::from(buf).to_fallible())?;
     Ok(())
 }
 

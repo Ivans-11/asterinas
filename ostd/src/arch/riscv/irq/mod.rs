@@ -14,7 +14,11 @@ pub(crate) use ops::{
 };
 pub(crate) use remapping::IrqRemapping;
 
-use crate::arch::irq::chip::InterruptSourceOnChip;
+use crate::{
+    arch::{cpu::context::GeneralRegs, irq::chip::InterruptSourceOnChip, trap::TrapFrame},
+    cpu::PrivilegeLevel,
+    irq::call_irq_callback_functions,
+};
 
 pub(crate) const IRQ_NUM_MIN: u8 = 0;
 pub(crate) const IRQ_NUM_MAX: u8 = 255;
@@ -52,6 +56,21 @@ pub fn for_each_pending_external_interrupt<F: FnMut(usize)>(mut handler: F) {
             continue;
         };
         handler(source.interrupt() as usize);
+    }
+}
+
+/// Handles pending supervisor external interrupts with the host IRQ callbacks.
+pub fn handle_pending_external_interrupts() {
+    let _guard = crate::irq::disable_local();
+    let hart_id = crate::arch::boot::smp::get_current_hart_id();
+    let trap_frame = TrapFrame {
+        general: GeneralRegs::default(),
+        sstatus: 0,
+        sepc: 0,
+    };
+
+    while let Some(hw_irq_line) = IRQ_CHIP.get().unwrap().claim_interrupt(hart_id) {
+        call_irq_callback_functions(&trap_frame, &hw_irq_line, PrivilegeLevel::Kernel);
     }
 }
 

@@ -102,11 +102,22 @@ pub trait ControlEndpointRuntime: Sync {
         buf: &[u8],
     ) -> AxResult;
 
+    /// Reads bytes from a vCPU run page owned by the host fd for `session`.
+    fn read_vcpu_run_page(
+        &self,
+        session: control::SessionId,
+        offset: usize,
+        buf: &mut [u8],
+    ) -> AxResult;
+
     /// Reads bytes from the current userspace task.
     fn read_user(&self, addr: usize, buf: &mut [u8]) -> AxResult;
 
     /// Writes bytes into the current userspace task.
     fn write_user(&self, addr: usize, buf: &[u8]) -> AxResult;
+
+    /// Signals an eventfd owned by the current userspace task.
+    fn signal_eventfd(&self, fd: control::HostFd) -> AxResult;
 
     /// Acquires userspace pages from the current userspace task.
     fn acquire_user_memory(
@@ -142,6 +153,9 @@ static X86_IOAPIC_IRQ_MAPPINGS: SpinLock<
 
 static MEMORY_ALLOCS: SpinLock<BTreeMap<usize, HostMemory>, LocalIrqDisabled> =
     SpinLock::new(BTreeMap::new());
+
+#[cfg(target_arch = "riscv64")]
+static CONTROL_MODE_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 static CONSOLE_INPUT: ConsoleInput = ConsoleInput::new();
 
@@ -528,12 +542,24 @@ impl control::ControlIf for ControlIfImpl {
         control_endpoint_runtime().write_vcpu_run_page(session, offset, buf)
     }
 
+    fn read_vcpu_run_page(
+        session: control::SessionId,
+        offset: usize,
+        buf: &mut [u8],
+    ) -> AxResult {
+        control_endpoint_runtime().read_vcpu_run_page(session, offset, buf)
+    }
+
     fn read_user(addr: usize, buf: &mut [u8]) -> AxResult {
         control_endpoint_runtime().read_user(addr, buf)
     }
 
     fn write_user(addr: usize, buf: &[u8]) -> AxResult {
         control_endpoint_runtime().write_user(addr, buf)
+    }
+
+    fn signal_eventfd(fd: control::HostFd) -> AxResult {
+        control_endpoint_runtime().signal_eventfd(fd)
     }
 
     fn acquire_user_memory(
@@ -554,9 +580,13 @@ impl irq::IrqIf for IrqIfImpl {
     fn handle_irq(vector: usize) -> bool {
         #[cfg(target_arch = "riscv64")]
         if vector == RISCV_S_EXT_VECTOR {
-            ostd::arch::irq::for_each_pending_external_interrupt(|irq_id| {
-                axvisor_core::arch::riscv64::inject_current_interrupt(irq_id);
-            });
+            if CONTROL_MODE_ACTIVE.load(Ordering::Acquire) {
+                ostd::arch::irq::handle_pending_external_interrupts();
+            } else {
+                ostd::arch::irq::for_each_pending_external_interrupt(|irq_id| {
+                    axvisor_core::arch::riscv64::inject_current_interrupt(irq_id);
+                });
+            }
             return true;
         }
 
@@ -668,12 +698,16 @@ impl api_arch::ArchIf for ArchIfImpl {
 /// Initializes Axvisor as a host-controlled hypervisor endpoint.
 #[cfg(feature = "control")]
 pub fn init_control_mode() -> AxResult {
+    #[cfg(target_arch = "riscv64")]
+    CONTROL_MODE_ACTIVE.store(true, Ordering::Release);
     aster_logger::print!("[axvisor] starting in control mode on Asterinas host runtime\n");
     axvisor_core::boot::init_control_mode()
 }
 
 /// Runs the static-configuration Axvisor boot flow.
 pub fn run_static_mode() {
+    #[cfg(target_arch = "riscv64")]
+    CONTROL_MODE_ACTIVE.store(false, Ordering::Release);
     aster_logger::print!("[axvisor] starting in static mode on Asterinas host runtime\n");
     axvisor_core::boot::run_static_mode();
 }

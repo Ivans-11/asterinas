@@ -7,6 +7,8 @@ use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
 use serde::Deserialize;
 
+use crate::HarnessInteraction;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ValueEnum, Deserialize)]
 #[clap(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
@@ -63,23 +65,7 @@ pub struct CaseManifest {
     pub shell_prompt: Option<String>,
     pub shell_init_cmd: Option<String>,
     #[serde(default)]
-    pub extra_features: Vec<String>,
-    #[serde(default)]
-    pub extra_qemu_args: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ControlCaseManifest {
-    pub arch: Arch,
-    pub case: String,
-    #[serde(default = "default_timeout_secs")]
-    pub timeout_secs: u64,
-    #[serde(default)]
-    pub success_regex: Vec<String>,
-    #[serde(default)]
-    pub fail_regex: Vec<String>,
-    pub shell_prompt: Option<String>,
-    pub shell_init_cmd: Option<String>,
+    pub interactions: Vec<HarnessInteraction>,
     #[serde(default)]
     pub extra_features: Vec<String>,
     #[serde(default)]
@@ -109,23 +95,6 @@ pub struct LoadedCase {
 impl LoadedCase {
     pub fn key(&self) -> String {
         format!("{}-{}", self.manifest.arch.as_str(), self.manifest.guest)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct LoadedControlCase {
-    pub dir: PathBuf,
-    pub host: LoadedHost,
-    pub manifest: ControlCaseManifest,
-}
-
-impl LoadedControlCase {
-    pub fn key(&self) -> String {
-        format!(
-            "{}-control-{}",
-            self.manifest.arch.as_str(),
-            self.manifest.case
-        )
     }
 }
 
@@ -179,53 +148,6 @@ pub fn load_all_cases(workspace_root: &Path) -> Result<Vec<LoadedCase>> {
     Ok(cases)
 }
 
-pub fn resolve_control_case(
-    workspace_root: &Path,
-    arch: Arch,
-    name: &str,
-) -> Result<LoadedControlCase> {
-    let arch_dir = workspace_root.join("test/axvisor").join(arch.as_str());
-    let case_dir = arch_dir.join("control").join(name);
-    let manifest_path = case_dir.join("case.toml");
-    if !manifest_path.is_file() {
-        bail!(
-            "no Axvisor control case `{name}` found for arch {} under {}",
-            arch.as_str(),
-            case_dir.display()
-        );
-    }
-
-    let manifest = load_control_case_manifest(&manifest_path)?;
-    if manifest.arch != arch {
-        bail!(
-            "control case `{name}` declares arch {}, but was resolved as {}",
-            manifest.arch.as_str(),
-            arch.as_str()
-        );
-    }
-    if manifest.case != name {
-        bail!(
-            "control case file {} declares case `{}`, expected `{name}`",
-            manifest_path.display(),
-            manifest.case
-        );
-    }
-
-    let host = load_host_manifest(&arch_dir)?.ok_or_else(|| {
-        anyhow::anyhow!(
-            "missing host.toml for Axvisor arch `{}` under {}",
-            arch.as_str(),
-            arch_dir.display()
-        )
-    })?;
-
-    Ok(LoadedControlCase {
-        dir: case_dir,
-        host,
-        manifest,
-    })
-}
-
 pub fn resolve_case(workspace_root: &Path, arch: Option<Arch>, guest: &str) -> Result<LoadedCase> {
     let mut matches = load_all_cases(workspace_root)?
         .into_iter()
@@ -273,12 +195,6 @@ fn load_host_manifest(arch_dir: &Path) -> Result<Option<LoadedHost>> {
 }
 
 fn load_case_manifest(path: &Path) -> Result<CaseManifest> {
-    let text =
-        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-    toml::from_str(&text).with_context(|| format!("failed to parse {}", path.display()))
-}
-
-fn load_control_case_manifest(path: &Path) -> Result<ControlCaseManifest> {
     let text =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     toml::from_str(&text).with_context(|| format!("failed to parse {}", path.display()))
