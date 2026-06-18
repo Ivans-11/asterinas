@@ -74,6 +74,23 @@ pub fn handle_pending_external_interrupts() {
     }
 }
 
+/// Handles a pending supervisor software interrupt with the host IPI callback.
+pub fn handle_pending_software_interrupt() {
+    let _guard = crate::irq::disable_local();
+    let trap_frame = TrapFrame {
+        general: GeneralRegs::default(),
+        sstatus: 0,
+        sepc: 0,
+    };
+    let ipi_irq_num = ipi::IPI_IRQ.get().unwrap().num();
+
+    call_irq_callback_functions(
+        &trap_frame,
+        &HwIrqLine::new(ipi_irq_num, InterruptSource::Software),
+        PrivilegeLevel::Kernel,
+    );
+}
+
 impl HwIrqLine {
     pub(super) fn new(irq_num: u8, source: InterruptSource) -> Self {
         Self { irq_num, source }

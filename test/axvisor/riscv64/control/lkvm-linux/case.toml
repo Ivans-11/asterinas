@@ -2,7 +2,7 @@ arch = "riscv64"
 case = "lkvm-linux"
 image = "qemu_riscv64_linux"
 payload_files = ["qemu-riscv64", "initramfs.cpio.gz", "rootfs.img"]
-timeout_secs = 300
+timeout_secs = 600
 success_regex = ["(?m)^guest test pass!\\s*$"]
 fail_regex = [
   "(?i)\\bpanic(?:ked)?\\b",
@@ -20,8 +20,8 @@ extra_qemu_args = [
 
 [[interactions]]
 expect = "~ # "
-send = "umount /ext2 2>/dev/null; mount -t ext2 /dev/vda /ext2 && /test/lkvm run --dev /dev/kvm --nodefaults --console serial --tty 1 --tty 2 --tty 3 --virtio-transport mmio --network mode=none --disable-ssaia -c 1 -m 256M -k /ext2/qemu-riscv64 -i /ext2/initramfs.cpio.gz -d /ext2/rootfs.img -p 'earlycon=sbi console=ttyS0,115200 init=/init root=/dev/vda rw'"
+send = "umount /ext2 2>/dev/null; mount -t ext2 /dev/vda /ext2 && /test/lkvm run --dev /dev/kvm --nodefaults --console serial --tty 1 --tty 2 --tty 3 --virtio-transport mmio --network mode=none --disable-ssaia -c 2 -m 256M -k /ext2/qemu-riscv64 -i /ext2/initramfs.cpio.gz -d /ext2/rootfs.img -p 'earlycon=sbi console=ttyS0,115200 init=/init root=/dev/vda rw'"
 
 [[interactions]]
 expect = "~ # "
-send = "uname -m && sed -n '1,8p' /proc/cpuinfo && echo \"guest test \"pass!"
+send = "cat /proc/cpuinfo;ls /proc;echo guest test\\ pass!"

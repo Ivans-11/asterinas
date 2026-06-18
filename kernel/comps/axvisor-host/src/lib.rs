@@ -59,6 +59,8 @@ struct ControlIfImpl;
 
 #[cfg(target_arch = "riscv64")]
 const RISCV_S_EXT_VECTOR: usize = (1usize << (usize::BITS - 1)) + 9;
+#[cfg(target_arch = "riscv64")]
+const RISCV_S_SOFT_VECTOR: usize = (1usize << (usize::BITS - 1)) + 1;
 
 /// Runtime hook used to spawn proper Asterinas kernel threads for Axvisor.
 pub trait KernelTaskRuntime: Sync {
@@ -386,6 +388,13 @@ impl host::HostIf for HostIfImpl {
         arch::init_percpu();
     }
 
+    fn remote_hfence_vvma_all() {
+        #[cfg(target_arch = "riscv64")]
+        {
+            axvisor_core::arch::riscv64::hfence_vvma_all();
+        }
+    }
+
     #[cfg(feature = "shell")]
     fn exit(exit_code: i32) -> ! {
         let code = if exit_code == 0 {
@@ -578,6 +587,12 @@ impl control::ControlIf for ControlIfImpl {
 #[api_impl]
 impl irq::IrqIf for IrqIfImpl {
     fn handle_irq(vector: usize) -> bool {
+        #[cfg(target_arch = "riscv64")]
+        if vector == RISCV_S_SOFT_VECTOR {
+            ostd::arch::irq::handle_pending_software_interrupt();
+            return true;
+        }
+
         #[cfg(target_arch = "riscv64")]
         if vector == RISCV_S_EXT_VECTOR {
             if CONTROL_MODE_ACTIVE.load(Ordering::Acquire) {

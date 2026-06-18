@@ -39,6 +39,12 @@
 #define KVM_CAP_ONE_REG 70
 #define KVM_CAP_IMMEDIATE_EXIT 136
 
+#if defined(__riscv) && __riscv_xlen == 64
+#define KVM_CAP_VCPUS_MIN 2
+#else
+#define KVM_CAP_VCPUS_MIN 1
+#endif
+
 #define KVM_REG_RISCV 0x8000000000000000ULL
 #define KVM_REG_SIZE_U64 0x0030000000000000ULL
 #define KVM_REG_RISCV_CONFIG (0x01ULL << 24)
@@ -303,6 +309,18 @@ static int expect_ioctl(long fd, unsigned long request, unsigned long arg, long 
 	return 0;
 }
 
+static int expect_ioctl_at_least(long fd, unsigned long request, unsigned long arg, long minimum,
+				 const char *name)
+{
+	long value = sys_ioctl(fd, request, arg);
+	if (value < minimum) {
+		puts(name);
+		puts(": unexpected value\n");
+		return 1;
+	}
+	return 0;
+}
+
 static int expect_ioctl_errno(long fd, unsigned long request, unsigned long arg, long expected_errno,
 			      const char *name)
 {
@@ -430,11 +448,11 @@ static int main(void)
 	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_USER_MEMORY, 1,
 			 "KVM_CAP_USER_MEMORY") != 0)
 		return 1;
-	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_NR_VCPUS, 1, "KVM_CAP_NR_VCPUS") !=
-	    0)
+	if (expect_ioctl_at_least(fd, KVM_CHECK_EXTENSION, KVM_CAP_NR_VCPUS,
+				  KVM_CAP_VCPUS_MIN, "KVM_CAP_NR_VCPUS") != 0)
 		return 1;
-	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_MAX_VCPUS, 1,
-			 "KVM_CAP_MAX_VCPUS") != 0)
+	if (expect_ioctl_at_least(fd, KVM_CHECK_EXTENSION, KVM_CAP_MAX_VCPUS,
+				  KVM_CAP_VCPUS_MIN, "KVM_CAP_MAX_VCPUS") != 0)
 		return 1;
 	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_NR_MEMSLOTS, 32,
 			 "KVM_CAP_NR_MEMSLOTS") != 0)
