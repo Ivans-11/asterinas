@@ -75,65 +75,64 @@ pub trait KernelTaskRuntime: Sync {
 /// Runtime hook used to expose Axvisor's control endpoint through Asterinas.
 #[cfg(feature = "control")]
 pub trait ControlEndpointRuntime: Sync {
+    // Endpoint publication.
+
     /// Registers a host-visible control endpoint such as `/dev/kvm`.
-    fn register_endpoint(&self, spec: control::EndpointSpec) -> AxResult<control::EndpointId>;
+    fn register_endpoint(&self, ops: control::ControlOps) -> AxResult;
 
-    /// Unregisters a previously registered host-visible control endpoint.
-    fn unregister_endpoint(&self, id: control::EndpointId) -> AxResult;
+    // Userspace file descriptors.
 
-    /// Creates a host userspace handle owned by the current userspace process.
-    fn create_user_handle(
+    /// Creates a userspace file descriptor owned by the current userspace process.
+    fn create_user_fd(
         &self,
-        endpoint: control::EndpointId,
-        session: control::SessionId,
-        shared_mapping_size: usize,
-    ) -> AxResult<control::CreatedUserHandle>;
+        control_file: control::ControlFileId,
+        ops: control::ControlOps,
+        mmap_area: Option<control::MmapAreaId>,
+    ) -> AxResult<control::Fd>;
 
-    /// Writes bytes into a previously created shared userspace mapping.
-    fn write_user_mapping(
-        &self,
-        handle: control::UserMappingHandle,
-        offset: usize,
-        buf: &[u8],
-    ) -> AxResult;
+    /// Retains a userspace file descriptor reference from the current userspace task.
+    fn get_user_fd_ref(&self, fd: control::Fd) -> AxResult<control::UserFdRefId>;
 
-    /// Reads bytes from a previously created shared userspace mapping.
-    fn read_user_mapping(
-        &self,
-        handle: control::UserMappingHandle,
-        offset: usize,
-        buf: &mut [u8],
-    ) -> AxResult;
+    /// Writes raw bytes to a previously retained userspace fd reference.
+    fn write_user_fd_ref(&self, user_fd_ref: control::UserFdRefId, buf: &[u8]) -> AxResult<usize>;
 
-    /// Releases a previously created shared userspace mapping handle.
-    fn release_user_mapping(&self, handle: control::UserMappingHandle) -> AxResult;
+    /// Releases a previously retained userspace fd reference.
+    fn release_user_fd_ref(&self, user_fd_ref: control::UserFdRefId) -> AxResult;
 
-    /// Reads bytes from the current userspace task.
-    fn read_user(&self, addr: usize, buf: &mut [u8]) -> AxResult;
+    // Userspace-mappable memory areas.
 
-    /// Writes bytes into the current userspace task.
-    fn write_user(&self, addr: usize, buf: &[u8]) -> AxResult;
+    /// Creates a userspace-mappable memory area.
+    fn create_mmap_area(&self, len: usize) -> AxResult<control::MmapAreaId>;
 
-    /// Acquires a signalable userspace notification object from the current
-    /// userspace task.
-    fn acquire_user_notifier(&self, fd: control::HostFd) -> AxResult<control::UserNotifierHandle>;
+    /// Reads bytes from a userspace-mappable memory area.
+    fn read_mmap_area(&self, area: control::MmapAreaId, offset: usize, buf: &mut [u8]) -> AxResult;
 
-    /// Signals a previously acquired userspace notification object.
-    fn signal_user_notifier(&self, handle: control::UserNotifierHandle) -> AxResult;
+    /// Writes bytes into a userspace-mappable memory area.
+    fn write_mmap_area(&self, area: control::MmapAreaId, offset: usize, buf: &[u8]) -> AxResult;
 
-    /// Releases a previously acquired userspace notification object.
-    fn release_user_notifier(&self, handle: control::UserNotifierHandle) -> AxResult;
+    /// Releases a previously created mmap area.
+    fn release_mmap_area(&self, area: control::MmapAreaId) -> AxResult;
 
-    /// Acquires userspace pages from the current userspace task.
-    fn acquire_user_memory(
+    // Current userspace address space access.
+
+    /// Copies bytes from the current userspace task.
+    fn copy_from_user(&self, addr: usize, buf: &mut [u8]) -> AxResult;
+
+    /// Copies bytes into the current userspace task.
+    fn copy_to_user(&self, addr: usize, buf: &[u8]) -> AxResult;
+
+    // Pinned userspace pages.
+
+    /// Pins userspace memory from the current userspace task.
+    fn pin_user_pages(
         &self,
         addr: usize,
         len: usize,
         writable: bool,
-    ) -> AxResult<control::AcquiredUserMemory>;
+    ) -> AxResult<control::PinnedUserPages>;
 
-    /// Releases an acquired userspace memory handle.
-    fn release_user_memory(&self, handle: control::UserMemoryHandle) -> AxResult;
+    /// Releases a previously pinned userspace page range.
+    fn release_pinned_user_pages(&self, id: control::PinnedUserPagesId) -> AxResult;
 }
 
 static KERNEL_TASK_RUNTIME: Once<&'static dyn KernelTaskRuntime> = Once::new();
@@ -527,72 +526,64 @@ impl task::TaskIf for TaskIfImpl {
 #[cfg(feature = "control")]
 #[api_impl]
 impl control::ControlIf for ControlIfImpl {
-    fn register_endpoint(spec: control::EndpointSpec) -> AxResult<control::EndpointId> {
-        control_endpoint_runtime().register_endpoint(spec)
+    fn register_endpoint(ops: control::ControlOps) -> AxResult {
+        control_endpoint_runtime().register_endpoint(ops)
     }
 
-    fn unregister_endpoint(id: control::EndpointId) -> AxResult {
-        control_endpoint_runtime().unregister_endpoint(id)
+    fn create_user_fd(
+        control_file: control::ControlFileId,
+        ops: control::ControlOps,
+        mmap_area: Option<control::MmapAreaId>,
+    ) -> AxResult<control::Fd> {
+        control_endpoint_runtime().create_user_fd(control_file, ops, mmap_area)
     }
 
-    fn create_user_handle(
-        endpoint: control::EndpointId,
-        session: control::SessionId,
-        shared_mapping_size: usize,
-    ) -> AxResult<control::CreatedUserHandle> {
-        control_endpoint_runtime().create_user_handle(endpoint, session, shared_mapping_size)
+    fn get_user_fd_ref(fd: control::Fd) -> AxResult<control::UserFdRefId> {
+        control_endpoint_runtime().get_user_fd_ref(fd)
     }
 
-    fn write_user_mapping(
-        handle: control::UserMappingHandle,
-        offset: usize,
-        buf: &[u8],
-    ) -> AxResult {
-        control_endpoint_runtime().write_user_mapping(handle, offset, buf)
+    fn write_user_fd_ref(user_fd_ref: control::UserFdRefId, buf: &[u8]) -> AxResult<usize> {
+        control_endpoint_runtime().write_user_fd_ref(user_fd_ref, buf)
     }
 
-    fn read_user_mapping(
-        handle: control::UserMappingHandle,
-        offset: usize,
-        buf: &mut [u8],
-    ) -> AxResult {
-        control_endpoint_runtime().read_user_mapping(handle, offset, buf)
+    fn release_user_fd_ref(user_fd_ref: control::UserFdRefId) -> AxResult {
+        control_endpoint_runtime().release_user_fd_ref(user_fd_ref)
     }
 
-    fn release_user_mapping(handle: control::UserMappingHandle) -> AxResult {
-        control_endpoint_runtime().release_user_mapping(handle)
+    fn create_mmap_area(len: usize) -> AxResult<control::MmapAreaId> {
+        control_endpoint_runtime().create_mmap_area(len)
     }
 
-    fn read_user(addr: usize, buf: &mut [u8]) -> AxResult {
-        control_endpoint_runtime().read_user(addr, buf)
+    fn read_mmap_area(area: control::MmapAreaId, offset: usize, buf: &mut [u8]) -> AxResult {
+        control_endpoint_runtime().read_mmap_area(area, offset, buf)
     }
 
-    fn write_user(addr: usize, buf: &[u8]) -> AxResult {
-        control_endpoint_runtime().write_user(addr, buf)
+    fn write_mmap_area(area: control::MmapAreaId, offset: usize, buf: &[u8]) -> AxResult {
+        control_endpoint_runtime().write_mmap_area(area, offset, buf)
     }
 
-    fn acquire_user_notifier(fd: control::HostFd) -> AxResult<control::UserNotifierHandle> {
-        control_endpoint_runtime().acquire_user_notifier(fd)
+    fn release_mmap_area(area: control::MmapAreaId) -> AxResult {
+        control_endpoint_runtime().release_mmap_area(area)
     }
 
-    fn signal_user_notifier(handle: control::UserNotifierHandle) -> AxResult {
-        control_endpoint_runtime().signal_user_notifier(handle)
+    fn copy_from_user(addr: usize, buf: &mut [u8]) -> AxResult {
+        control_endpoint_runtime().copy_from_user(addr, buf)
     }
 
-    fn release_user_notifier(handle: control::UserNotifierHandle) -> AxResult {
-        control_endpoint_runtime().release_user_notifier(handle)
+    fn copy_to_user(addr: usize, buf: &[u8]) -> AxResult {
+        control_endpoint_runtime().copy_to_user(addr, buf)
     }
 
-    fn acquire_user_memory(
+    fn pin_user_pages(
         addr: usize,
         len: usize,
         writable: bool,
-    ) -> AxResult<control::AcquiredUserMemory> {
-        control_endpoint_runtime().acquire_user_memory(addr, len, writable)
+    ) -> AxResult<control::PinnedUserPages> {
+        control_endpoint_runtime().pin_user_pages(addr, len, writable)
     }
 
-    fn release_user_memory(handle: control::UserMemoryHandle) -> AxResult {
-        control_endpoint_runtime().release_user_memory(handle)
+    fn release_pinned_user_pages(id: control::PinnedUserPagesId) -> AxResult {
+        control_endpoint_runtime().release_pinned_user_pages(id)
     }
 }
 
