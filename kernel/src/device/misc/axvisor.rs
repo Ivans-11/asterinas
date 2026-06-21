@@ -4,7 +4,7 @@
 
 use core::{
     fmt::Display,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 use aster_axvisor_host::{
@@ -26,7 +26,10 @@ use crate::{
             file_table::{FdFlags, FileDesc},
         },
         pseudofs::AnonInodeFs,
-        vfs::{inode::FileOps, path::Path},
+        vfs::{
+            inode::{FileOps, Inode},
+            path::Path,
+        },
     },
     prelude::*,
     process::signal::{PollHandle, Pollable},
@@ -37,9 +40,16 @@ use crate::{
 const KVM_MINOR: u32 = 232;
 
 static KVM_ENDPOINT: Mutex<Option<EndpointEntry>> = Mutex::new(None);
-static VCPU_RUN_PAGES: Mutex<BTreeMap<SessionId, Arc<Vmo>>> = Mutex::new(BTreeMap::new());
 static NEXT_ACQUIRED_USER_MEMORY: AtomicU64 = AtomicU64::new(1);
+static NEXT_USER_MAPPING: AtomicU64 = AtomicU64::new(1);
+static NEXT_USER_NOTIFIER: AtomicU64 = AtomicU64::new(1);
 static ACQUIRED_USER_MEMORY: Mutex<BTreeMap<control::UserMemoryHandle, Vec<UFrame>>> =
+    Mutex::new(BTreeMap::new());
+// Keep non-owning references here so closing the userspace fd still drops the
+// backing object and releases the AxVisor session.
+static USER_MAPPINGS: Mutex<BTreeMap<control::UserMappingHandle, Weak<KvmAnonFile>>> =
+    Mutex::new(BTreeMap::new());
+static USER_NOTIFIERS: Mutex<BTreeMap<control::UserNotifierHandle, Arc<dyn FileLike>>> =
     Mutex::new(BTreeMap::new());
 
 #[derive(Clone, Copy)]
@@ -79,24 +89,12 @@ impl ControlEndpointRuntime for AxvisorControlEndpointRuntime {
         }
     }
 
-    fn create_vm_fd(&self, endpoint: EndpointId, session: SessionId) -> AxResult<HostFd> {
-        let ops = {
-            let registered = KVM_ENDPOINT.lock();
-            match *registered {
-                Some(entry) if entry.id == endpoint => entry.ops,
-                _ => return Err(AxErrorKind::NotFound.into()),
-            }
-        };
-
-        create_vm_fd(session, ops).map_err(to_ax_error)
-    }
-
-    fn create_vcpu_fd(
+    fn create_user_handle(
         &self,
         endpoint: EndpointId,
         session: SessionId,
-        mmap_size: usize,
-    ) -> AxResult<HostFd> {
+        shared_mapping_size: usize,
+    ) -> AxResult<control::CreatedUserHandle> {
         let ops = {
             let registered = KVM_ENDPOINT.lock();
             match *registered {
@@ -105,15 +103,29 @@ impl ControlEndpointRuntime for AxvisorControlEndpointRuntime {
             }
         };
 
-        create_vcpu_fd(session, ops, mmap_size).map_err(to_ax_error)
+        create_user_handle(session, ops, shared_mapping_size).map_err(to_ax_error)
     }
 
-    fn write_vcpu_run_page(&self, session: SessionId, offset: usize, buf: &[u8]) -> AxResult {
-        write_vcpu_run_page(session, offset, buf).map_err(to_ax_error)
+    fn write_user_mapping(
+        &self,
+        handle: control::UserMappingHandle,
+        offset: usize,
+        buf: &[u8],
+    ) -> AxResult {
+        write_user_mapping(handle, offset, buf).map_err(to_ax_error)
     }
 
-    fn read_vcpu_run_page(&self, session: SessionId, offset: usize, buf: &mut [u8]) -> AxResult {
-        read_vcpu_run_page(session, offset, buf).map_err(to_ax_error)
+    fn read_user_mapping(
+        &self,
+        handle: control::UserMappingHandle,
+        offset: usize,
+        buf: &mut [u8],
+    ) -> AxResult {
+        read_user_mapping(handle, offset, buf).map_err(to_ax_error)
+    }
+
+    fn release_user_mapping(&self, handle: control::UserMappingHandle) -> AxResult {
+        release_user_mapping(handle).map_err(to_ax_error)
     }
 
     fn read_user(&self, addr: usize, buf: &mut [u8]) -> AxResult {
@@ -124,8 +136,16 @@ impl ControlEndpointRuntime for AxvisorControlEndpointRuntime {
         write_user(addr, buf).map_err(to_ax_error)
     }
 
-    fn signal_eventfd(&self, fd: HostFd) -> AxResult {
-        signal_eventfd(fd).map_err(to_ax_error)
+    fn acquire_user_notifier(&self, fd: HostFd) -> AxResult<control::UserNotifierHandle> {
+        acquire_user_notifier(fd).map_err(to_ax_error)
+    }
+
+    fn signal_user_notifier(&self, handle: control::UserNotifierHandle) -> AxResult {
+        signal_user_notifier(handle).map_err(to_ax_error)
+    }
+
+    fn release_user_notifier(&self, handle: control::UserNotifierHandle) -> AxResult {
+        release_user_notifier(handle).map_err(to_ax_error)
     }
 
     fn acquire_user_memory(
@@ -156,6 +176,10 @@ impl KvmDevice {
         let id = DeviceId::new(major, minor);
         Arc::new(Self { id })
     }
+}
+
+fn axvisor_user_handle_name(_: &dyn Inode) -> String {
+    "anon_inode:[axvisor-user-handle]".to_string()
 }
 
 impl Device for KvmDevice {
@@ -256,13 +280,6 @@ impl PerOpenFileOps for KvmFile {
         false
     }
 
-    fn mappable(&self) -> Result<Mappable> {
-        if self.ops.mmap.is_none() {
-            return_errno_with_message!(Errno::ENODEV, "mmap is not supported by /dev/kvm");
-        }
-        return_errno_with_message!(Errno::ENODEV, "mmap dispatch is not implemented yet")
-    }
-
     fn ioctl(&self, raw_ioctl: RawIoctl) -> Result<i32> {
         let result = (self.ops.ioctl)(self.session, raw_ioctl.cmd(), raw_ioctl.arg())
             .map_err(from_ax_error)?;
@@ -271,29 +288,45 @@ impl PerOpenFileOps for KvmFile {
     }
 }
 
-struct KvmVmFile {
+struct KvmAnonFile {
     session: SessionId,
     ops: ControlOps,
+    owns_session: AtomicBool,
+    shared_mapping: Option<Arc<Vmo>>,
     pseudo_path: Path,
 }
 
-impl KvmVmFile {
-    fn new(session: SessionId, ops: ControlOps) -> Self {
+impl KvmAnonFile {
+    fn new(session: SessionId, ops: ControlOps, shared_mapping: Option<Arc<Vmo>>) -> Self {
         Self {
             session,
             ops,
-            pseudo_path: AnonInodeFs::new_path(|_| "anon_inode:[kvm-vm]".to_string()),
+            owns_session: AtomicBool::new(false),
+            shared_mapping,
+            pseudo_path: AnonInodeFs::new_path(axvisor_user_handle_name),
+        }
+    }
+
+    fn adopt_session(&self) {
+        self.owns_session.store(true, Ordering::Release);
+    }
+
+    fn shared_mapping(&self) -> Result<Arc<Vmo>> {
+        self.shared_mapping
+            .clone()
+            .ok_or_else(|| Error::with_message(Errno::ENODEV, "mmap is not supported"))
+    }
+}
+
+impl Drop for KvmAnonFile {
+    fn drop(&mut self) {
+        if self.owns_session.load(Ordering::Acquire) {
+            let _ = (self.ops.release)(self.session);
         }
     }
 }
 
-impl Drop for KvmVmFile {
-    fn drop(&mut self) {
-        let _ = (self.ops.release)(self.session);
-    }
-}
-
-impl Pollable for KvmVmFile {
+impl Pollable for KvmAnonFile {
     fn poll(&self, mask: IoEvents, _poller: Option<&mut PollHandle>) -> IoEvents {
         if let Some(poll) = self.ops.poll {
             match poll(self.session) {
@@ -318,101 +351,7 @@ impl Pollable for KvmVmFile {
     }
 }
 
-impl FileLike for KvmVmFile {
-    fn ioctl(&self, raw_ioctl: RawIoctl) -> Result<i32> {
-        let result = (self.ops.ioctl)(self.session, raw_ioctl.cmd(), raw_ioctl.arg())
-            .map_err(from_ax_error)?;
-        i32::try_from(result)
-            .map_err(|_| Error::with_message(Errno::EOVERFLOW, "ioctl return value overflow"))
-    }
-
-    fn access_mode(&self) -> AccessMode {
-        AccessMode::O_RDWR
-    }
-
-    fn path(&self) -> &Path {
-        &self.pseudo_path
-    }
-
-    fn dump_proc_fdinfo(self: Arc<Self>, fd_flags: FdFlags) -> Box<dyn Display> {
-        struct FdInfo {
-            inner: Arc<KvmVmFile>,
-            fd_flags: FdFlags,
-        }
-
-        impl Display for FdInfo {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                let mut flags = self.inner.status_flags().bits() | self.inner.access_mode() as u32;
-                if self.fd_flags.contains(FdFlags::CLOEXEC) {
-                    flags |= CreationFlags::O_CLOEXEC.bits();
-                }
-
-                writeln!(f, "pos:\t{}", 0)?;
-                writeln!(f, "flags:\t0{:o}", flags)?;
-                writeln!(f, "mnt_id:\t{}", AnonInodeFs::mount_node().id())?;
-                writeln!(f, "ino:\t{}", AnonInodeFs::shared_inode().ino())
-            }
-        }
-
-        Box::new(FdInfo {
-            inner: self,
-            fd_flags,
-        })
-    }
-}
-
-struct KvmVcpuFile {
-    session: SessionId,
-    ops: ControlOps,
-    run_vmo: Arc<Vmo>,
-    pseudo_path: Path,
-}
-
-impl KvmVcpuFile {
-    fn new(session: SessionId, ops: ControlOps, mmap_size: usize) -> Result<Self> {
-        let run_vmo = VmoOptions::new(mmap_size).alloc()?;
-        Ok(Self {
-            session,
-            ops,
-            run_vmo,
-            pseudo_path: AnonInodeFs::new_path(|_| "anon_inode:[kvm-vcpu]".to_string()),
-        })
-    }
-}
-
-impl Drop for KvmVcpuFile {
-    fn drop(&mut self) {
-        VCPU_RUN_PAGES.lock().remove(&self.session);
-        let _ = (self.ops.release)(self.session);
-    }
-}
-
-impl Pollable for KvmVcpuFile {
-    fn poll(&self, mask: IoEvents, _poller: Option<&mut PollHandle>) -> IoEvents {
-        if let Some(poll) = self.ops.poll {
-            match poll(self.session) {
-                Ok(events) => {
-                    let mut ready = IoEvents::empty();
-                    if events.readable {
-                        ready |= IoEvents::IN;
-                    }
-                    if events.writable {
-                        ready |= IoEvents::OUT;
-                    }
-                    if events.error {
-                        ready |= IoEvents::ERR;
-                    }
-                    ready & mask
-                }
-                Err(_) => IoEvents::ERR & mask,
-            }
-        } else {
-            (IoEvents::IN | IoEvents::OUT) & mask
-        }
-    }
-}
-
-impl FileLike for KvmVcpuFile {
+impl FileLike for KvmAnonFile {
     fn ioctl(&self, raw_ioctl: RawIoctl) -> Result<i32> {
         let result = (self.ops.ioctl)(self.session, raw_ioctl.cmd(), raw_ioctl.arg())
             .map_err(from_ax_error)?;
@@ -425,7 +364,10 @@ impl FileLike for KvmVcpuFile {
     }
 
     fn mappable(&self) -> Result<Mappable> {
-        Ok(Mappable::Vmo(self.run_vmo.clone()))
+        self.shared_mapping
+            .clone()
+            .map(Mappable::Vmo)
+            .ok_or_else(|| Error::with_message(Errno::ENODEV, "mmap is not supported"))
     }
 
     fn path(&self) -> &Path {
@@ -434,7 +376,7 @@ impl FileLike for KvmVcpuFile {
 
     fn dump_proc_fdinfo(self: Arc<Self>, fd_flags: FdFlags) -> Box<dyn Display> {
         struct FdInfo {
-            inner: Arc<KvmVcpuFile>,
+            inner: Arc<KvmAnonFile>,
             fd_flags: FdFlags,
         }
 
@@ -459,19 +401,38 @@ impl FileLike for KvmVcpuFile {
     }
 }
 
-fn create_vm_fd(session: SessionId, ops: ControlOps) -> Result<HostFd> {
-    create_object_fd(Arc::new(KvmVmFile::new(session, ops)))
-}
-
-fn create_vcpu_fd(session: SessionId, ops: ControlOps, mmap_size: usize) -> Result<HostFd> {
-    let vcpu_file = Arc::new(KvmVcpuFile::new(session, ops, mmap_size)?);
-    VCPU_RUN_PAGES
-        .lock()
-        .insert(session, vcpu_file.run_vmo.clone());
-    match create_object_fd(vcpu_file) {
-        Ok(fd) => Ok(fd),
+fn create_user_handle(
+    session: SessionId,
+    ops: ControlOps,
+    shared_mapping_size: usize,
+) -> Result<control::CreatedUserHandle> {
+    let (mapping_handle, shared_mapping) = if shared_mapping_size == 0 {
+        (None, None)
+    } else {
+        let handle = NEXT_USER_MAPPING.fetch_add(1, Ordering::Relaxed);
+        if handle == 0 {
+            return_errno_with_message!(Errno::EOVERFLOW, "user mapping handle overflow");
+        }
+        (Some(handle), Some(VmoOptions::new(shared_mapping_size).alloc()?))
+    };
+    let anon_file = Arc::new(KvmAnonFile::new(session, ops, shared_mapping.clone()));
+    if let Some(handle) = mapping_handle {
+        USER_MAPPINGS
+            .lock()
+            .insert(handle, Arc::downgrade(&anon_file));
+    }
+    match create_object_fd(anon_file.clone()) {
+        Ok(fd) => {
+            anon_file.adopt_session();
+            Ok(control::CreatedUserHandle {
+                fd,
+                mapping: mapping_handle,
+            })
+        }
         Err(err) => {
-            VCPU_RUN_PAGES.lock().remove(&session);
+            if let Some(handle) = mapping_handle {
+                USER_MAPPINGS.lock().remove(&handle);
+            }
             Err(err)
         }
     }
@@ -509,7 +470,7 @@ fn write_user(addr: usize, buf: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn signal_eventfd(fd: HostFd) -> Result<()> {
+fn acquire_user_notifier(fd: HostFd) -> Result<control::UserNotifierHandle> {
     let task = Task::current()
         .ok_or_else(|| Error::with_message(Errno::ESRCH, "current task is not available"))?;
     let thread_local = task
@@ -521,6 +482,20 @@ fn signal_eventfd(fd: HostFd) -> Result<()> {
         .read()
         .get_file(FileDesc::try_from(fd)?)
         .cloned()?;
+    let handle = NEXT_USER_NOTIFIER.fetch_add(1, Ordering::Relaxed);
+    if handle == 0 {
+        return_errno_with_message!(Errno::EOVERFLOW, "user notifier handle overflow");
+    }
+    USER_NOTIFIERS.lock().insert(handle, file);
+    Ok(handle)
+}
+
+fn signal_user_notifier(handle: control::UserNotifierHandle) -> Result<()> {
+    let file = USER_NOTIFIERS
+        .lock()
+        .get(&handle)
+        .cloned()
+        .ok_or_else(|| Error::with_message(Errno::ENOENT, "user notifier not found"))?;
 
     let value = 1u64.to_ne_bytes();
     let mut reader = VmReader::from(value.as_slice()).to_fallible();
@@ -531,24 +506,48 @@ fn signal_eventfd(fd: HostFd) -> Result<()> {
     Ok(())
 }
 
-fn write_vcpu_run_page(session: SessionId, offset: usize, buf: &[u8]) -> Result<()> {
-    let run_vmo = VCPU_RUN_PAGES
+fn release_user_notifier(handle: control::UserNotifierHandle) -> Result<()> {
+    USER_NOTIFIERS
         .lock()
-        .get(&session)
+        .remove(&handle)
+        .map(|_| ())
+        .ok_or_else(|| Error::with_message(Errno::ENOENT, "user notifier not found"))
+}
+
+fn shared_mapping_for_handle(handle: control::UserMappingHandle) -> Result<Arc<Vmo>> {
+    let user_handle = USER_MAPPINGS
+        .lock()
+        .get(&handle)
         .cloned()
-        .ok_or_else(|| Error::with_message(Errno::ENOENT, "vCPU run page not found"))?;
-    run_vmo.write(offset, &mut VmReader::from(buf).to_fallible())?;
+        .ok_or_else(|| Error::with_message(Errno::ENOENT, "user handle mapping not found"))?;
+    let user_handle = user_handle
+        .upgrade()
+        .ok_or_else(|| Error::with_message(Errno::ENOENT, "user handle mapping not found"))?;
+    user_handle.shared_mapping()
+}
+
+fn write_user_mapping(handle: control::UserMappingHandle, offset: usize, buf: &[u8]) -> Result<()> {
+    let shared_mapping = shared_mapping_for_handle(handle)?;
+    shared_mapping.write(offset, &mut VmReader::from(buf).to_fallible())?;
     Ok(())
 }
 
-fn read_vcpu_run_page(session: SessionId, offset: usize, buf: &mut [u8]) -> Result<()> {
-    let run_vmo = VCPU_RUN_PAGES
-        .lock()
-        .get(&session)
-        .cloned()
-        .ok_or_else(|| Error::with_message(Errno::ENOENT, "vCPU run page not found"))?;
-    run_vmo.read(offset, &mut VmWriter::from(buf).to_fallible())?;
+fn read_user_mapping(
+    handle: control::UserMappingHandle,
+    offset: usize,
+    buf: &mut [u8],
+) -> Result<()> {
+    let shared_mapping = shared_mapping_for_handle(handle)?;
+    shared_mapping.read(offset, &mut VmWriter::from(buf).to_fallible())?;
     Ok(())
+}
+
+fn release_user_mapping(handle: control::UserMappingHandle) -> Result<()> {
+    USER_MAPPINGS
+        .lock()
+        .remove(&handle)
+        .map(|_| ())
+        .ok_or_else(|| Error::with_message(Errno::ENOENT, "user handle mapping not found"))
 }
 
 fn acquire_user_memory(

@@ -81,36 +81,32 @@ pub trait ControlEndpointRuntime: Sync {
     /// Unregisters a previously registered host-visible control endpoint.
     fn unregister_endpoint(&self, id: control::EndpointId) -> AxResult;
 
-    /// Creates a VM object fd owned by the current userspace process.
-    fn create_vm_fd(
+    /// Creates a host userspace handle owned by the current userspace process.
+    fn create_user_handle(
         &self,
         endpoint: control::EndpointId,
         session: control::SessionId,
-    ) -> AxResult<control::HostFd>;
+        shared_mapping_size: usize,
+    ) -> AxResult<control::CreatedUserHandle>;
 
-    /// Creates a vCPU object fd owned by the current userspace process.
-    fn create_vcpu_fd(
+    /// Writes bytes into a previously created shared userspace mapping.
+    fn write_user_mapping(
         &self,
-        endpoint: control::EndpointId,
-        session: control::SessionId,
-        mmap_size: usize,
-    ) -> AxResult<control::HostFd>;
-
-    /// Writes bytes into a vCPU run page owned by the host fd for `session`.
-    fn write_vcpu_run_page(
-        &self,
-        session: control::SessionId,
+        handle: control::UserMappingHandle,
         offset: usize,
         buf: &[u8],
     ) -> AxResult;
 
-    /// Reads bytes from a vCPU run page owned by the host fd for `session`.
-    fn read_vcpu_run_page(
+    /// Reads bytes from a previously created shared userspace mapping.
+    fn read_user_mapping(
         &self,
-        session: control::SessionId,
+        handle: control::UserMappingHandle,
         offset: usize,
         buf: &mut [u8],
     ) -> AxResult;
+
+    /// Releases a previously created shared userspace mapping handle.
+    fn release_user_mapping(&self, handle: control::UserMappingHandle) -> AxResult;
 
     /// Reads bytes from the current userspace task.
     fn read_user(&self, addr: usize, buf: &mut [u8]) -> AxResult;
@@ -118,8 +114,15 @@ pub trait ControlEndpointRuntime: Sync {
     /// Writes bytes into the current userspace task.
     fn write_user(&self, addr: usize, buf: &[u8]) -> AxResult;
 
-    /// Signals an eventfd owned by the current userspace task.
-    fn signal_eventfd(&self, fd: control::HostFd) -> AxResult;
+    /// Acquires a signalable userspace notification object from the current
+    /// userspace task.
+    fn acquire_user_notifier(&self, fd: control::HostFd) -> AxResult<control::UserNotifierHandle>;
+
+    /// Signals a previously acquired userspace notification object.
+    fn signal_user_notifier(&self, handle: control::UserNotifierHandle) -> AxResult;
+
+    /// Releases a previously acquired userspace notification object.
+    fn release_user_notifier(&self, handle: control::UserNotifierHandle) -> AxResult;
 
     /// Acquires userspace pages from the current userspace task.
     fn acquire_user_memory(
@@ -532,31 +535,32 @@ impl control::ControlIf for ControlIfImpl {
         control_endpoint_runtime().unregister_endpoint(id)
     }
 
-    fn create_vm_fd(
+    fn create_user_handle(
         endpoint: control::EndpointId,
         session: control::SessionId,
-    ) -> AxResult<control::HostFd> {
-        control_endpoint_runtime().create_vm_fd(endpoint, session)
+        shared_mapping_size: usize,
+    ) -> AxResult<control::CreatedUserHandle> {
+        control_endpoint_runtime().create_user_handle(endpoint, session, shared_mapping_size)
     }
 
-    fn create_vcpu_fd(
-        endpoint: control::EndpointId,
-        session: control::SessionId,
-        mmap_size: usize,
-    ) -> AxResult<control::HostFd> {
-        control_endpoint_runtime().create_vcpu_fd(endpoint, session, mmap_size)
+    fn write_user_mapping(
+        handle: control::UserMappingHandle,
+        offset: usize,
+        buf: &[u8],
+    ) -> AxResult {
+        control_endpoint_runtime().write_user_mapping(handle, offset, buf)
     }
 
-    fn write_vcpu_run_page(session: control::SessionId, offset: usize, buf: &[u8]) -> AxResult {
-        control_endpoint_runtime().write_vcpu_run_page(session, offset, buf)
-    }
-
-    fn read_vcpu_run_page(
-        session: control::SessionId,
+    fn read_user_mapping(
+        handle: control::UserMappingHandle,
         offset: usize,
         buf: &mut [u8],
     ) -> AxResult {
-        control_endpoint_runtime().read_vcpu_run_page(session, offset, buf)
+        control_endpoint_runtime().read_user_mapping(handle, offset, buf)
+    }
+
+    fn release_user_mapping(handle: control::UserMappingHandle) -> AxResult {
+        control_endpoint_runtime().release_user_mapping(handle)
     }
 
     fn read_user(addr: usize, buf: &mut [u8]) -> AxResult {
@@ -567,8 +571,16 @@ impl control::ControlIf for ControlIfImpl {
         control_endpoint_runtime().write_user(addr, buf)
     }
 
-    fn signal_eventfd(fd: control::HostFd) -> AxResult {
-        control_endpoint_runtime().signal_eventfd(fd)
+    fn acquire_user_notifier(fd: control::HostFd) -> AxResult<control::UserNotifierHandle> {
+        control_endpoint_runtime().acquire_user_notifier(fd)
+    }
+
+    fn signal_user_notifier(handle: control::UserNotifierHandle) -> AxResult {
+        control_endpoint_runtime().signal_user_notifier(handle)
+    }
+
+    fn release_user_notifier(handle: control::UserNotifierHandle) -> AxResult {
+        control_endpoint_runtime().release_user_notifier(handle)
     }
 
     fn acquire_user_memory(
