@@ -38,3 +38,7 @@ fn nanos_to_ticks(nanos: u64) -> u64 {
 pub(crate) fn host_fdt_paddr() -> Option<PhysAddr> {
     DEVICE_TREE_PADDR.get().copied().map(PhysAddr::from_usize)
 }
+
+pub(crate) fn remote_hfence_vvma_all() {
+    axvisor_core::arch::riscv64::hfence_vvma_all();
+}

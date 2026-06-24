@@ -390,13 +390,6 @@ impl host::HostIf for HostIfImpl {
         arch::init_percpu();
     }
 
-    fn remote_hfence_vvma_all() {
-        #[cfg(target_arch = "riscv64")]
-        {
-            axvisor_core::arch::riscv64::hfence_vvma_all();
-        }
-    }
-
     #[cfg(feature = "shell")]
     fn exit(exit_code: i32) -> ! {
         let code = if exit_code == 0 {
@@ -703,6 +696,11 @@ impl api_arch::ArchIf for ArchIfImpl {
     ))]
     fn host_fdt_paddr() -> Option<PhysAddr> {
         arch::host_fdt_paddr()
+    }
+
+    #[cfg(target_arch = "riscv64")]
+    fn remote_hfence_vvma_all() {
+        arch::remote_hfence_vvma_all();
     }
 
     #[cfg(target_arch = "x86_64")]

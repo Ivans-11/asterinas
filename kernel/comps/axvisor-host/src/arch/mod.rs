@@ -15,6 +15,8 @@ mod imp;
     target_arch = "riscv64"
 ))]
 pub(crate) use imp::host_fdt_paddr;
+#[cfg(target_arch = "riscv64")]
+pub(crate) use imp::remote_hfence_vvma_all;
 pub(crate) use imp::{init_percpu, set_oneshot_timer};
 
 pub(crate) fn linear_mapping_virt_to_phys(addr: usize) -> PhysAddr {
