@@ -56,6 +56,11 @@ jobs:
             guest: ""
             case: lkvm-linux
             name: riscv64-control-lkvm-linux
+          - arch: riscv64
+            mode: control
+            guest: ""
+            case: firecracker-linux
+            name: riscv64-control-firecracker-linux
     steps:
       - name: Free disk space
         run: rm -rf /usr/lib/google-cloud-sdk/* /usr/local/lib/android/* /usr/share/dotnet/*

@@ -1,0 +1,20 @@
+{
+  "boot-source": {
+    "kernel_image_path": "/ext2/qemu-riscv64",
+    "initrd_path": "/ext2/initramfs.cpio.gz",
+    "boot_args": "earlycon=sbi console=ttyS0,115200 init=/init root=/dev/vda rw"
+  },
+  "drives": [
+    {
+      "drive_id": "rootfs",
+      "path_on_host": "/ext2/rootfs.img",
+      "is_root_device": true,
+      "is_read_only": false
+    }
+  ],
+  "machine-config": {
+    "vcpu_count": 1,
+    "mem_size_mib": 256,
+    "smt": false
+  }
+}

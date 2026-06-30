@@ -1,7 +1,15 @@
-{ stdenvNoCC, lib, callPackage, targetArch ? "x86_64", }:
+{ stdenvNoCC, lib, callPackage, targetArch ? "x86_64"
+, firecrackerRiscv64Url ? "", firecrackerRiscv64Sha256 ? "", }:
 let
   kvmSmoke = callPackage ./kvm-smoke.nix { };
   lkvm = callPackage ./lkvm.nix { };
+  firecrackerRiscvConfig = builtins.path {
+    path = ./../../src/axvisor/firecracker_riscv.json;
+  };
+  hasFirecracker = firecrackerRiscv64Url != "" && firecrackerRiscv64Sha256 != "";
+  firecracker = callPackage ./firecracker.nix {
+    inherit firecrackerRiscv64Url firecrackerRiscv64Sha256;
+  };
   commonTestFiles = [
     {
       package = kvmSmoke;
@@ -15,6 +23,17 @@ let
         package = lkvm;
         source = "${lkvm}/bin/lkvm";
         target = "lkvm";
+      }
+    ] ++ lib.optionals hasFirecracker [
+      {
+        package = firecracker;
+        source = "${firecracker}/bin/firecracker";
+        target = "firecracker";
+      }
+      {
+        package = firecrackerRiscvConfig;
+        source = firecrackerRiscvConfig;
+        target = "firecracker-riscv.json";
       }
     ];
   };

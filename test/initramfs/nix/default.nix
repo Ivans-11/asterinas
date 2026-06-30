@@ -1,7 +1,10 @@
 { target ? "x86_64", enableBenchmarkTest ? false, enableConformanceTest ? false
 , enableRegressionTest ? false, conformanceTestSuite ? "ltp"
 , conformanceTestWorkDir ? "/tmp", regressionTestPlatform ? "asterinas"
-, dnsServer ? "none", smp ? 1, initramfsCompressed ? true, }:
+, dnsServer ? "none", smp ? 1, initramfsCompressed ? true
+, firecrackerRiscv64Url ?
+  "https://github.com/Ivans-11/firecracker/releases/download/firecracker-riscv64-v0.1.0/firecracker-riscv64gc-unknown-linux-musl"
+, firecrackerRiscv64Sha256 ? "sha256-L951iq70esO2ernuREGVmdQmMTQpAuLCYRMDmDe5/T4=", }:
 let
   crossSystem.config = if target == "x86_64" then
     "x86_64-unknown-linux-gnu"
@@ -32,7 +35,10 @@ in rec {
   };
   regression =
     pkgs.callPackage ./regression { testPlatform = regressionTestPlatform; };
-  axvisorTests = pkgs.callPackage ./axvisor { targetArch = target; };
+  axvisorTests = pkgs.callPackage ./axvisor {
+    targetArch = target;
+    inherit firecrackerRiscv64Url firecrackerRiscv64Sha256;
+  };
 
   initramfs = pkgs.callPackage ./initramfs.nix {
     inherit busybox axvisorTests;

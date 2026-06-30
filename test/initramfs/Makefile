@@ -12,6 +12,8 @@ ENABLE_REGRESSION_TEST ?= false
 # - linux: Define only `__linux__`. Tests may fail in Asterinas.
 REGRESSION_TEST_PLATFORM ?= asterinas
 DNS_SERVER ?= none
+FIRECRACKER_RISCV64_URL ?= https://github.com/Ivans-11/firecracker/releases/download/firecracker-riscv64-v0.1.0/firecracker-riscv64gc-unknown-linux-musl
+FIRECRACKER_RISCV64_SHA256 ?= sha256-L951iq70esO2ernuREGVmdQmMTQpAuLCYRMDmDe5/T4=
 # Set Nix's cached tarballs to be live for a longer period of time (30 days) to avoid network traffics.
 # Nix's default value is rather small (1 hour or 3600 seconds).
 NIXPKGS_CACHE_TTL := 2592000 # In seconds
@@ -79,6 +81,8 @@ $(INITRAMFS_IMAGE): $(INITRAMFS)
 		--argstr conformanceTestWorkDir $(CONFORMANCE_TEST_WORKDIR) \
 		--argstr regressionTestPlatform $(REGRESSION_TEST_PLATFORM) \
 		--argstr dnsServer ${DNS_SERVER} \
+		--argstr firecrackerRiscv64Url "$(FIRECRACKER_RISCV64_URL)" \
+		--argstr firecrackerRiscv64Sha256 "$(FIRECRACKER_RISCV64_SHA256)" \
 		--arg initramfsCompressed $(INITRAMFS_COMPRESSED) \
 		--arg smp $(SMP) \
 		--out-link $@ \
@@ -96,6 +100,8 @@ $(INITRAMFS):
 		--argstr conformanceTestWorkDir $(CONFORMANCE_TEST_WORKDIR) \
 		--argstr regressionTestPlatform $(REGRESSION_TEST_PLATFORM) \
 		--argstr dnsServer ${DNS_SERVER} \
+		--argstr firecrackerRiscv64Url "$(FIRECRACKER_RISCV64_URL)" \
+		--argstr firecrackerRiscv64Sha256 "$(FIRECRACKER_RISCV64_SHA256)" \
 		--arg smp $(SMP) \
 		--out-link $@ \
 		nix -A initramfs

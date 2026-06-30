@@ -11,17 +11,23 @@ use crate::{
     vm::vmar::is_userspace_vaddr,
 };
 
-// The order of arguments for clone differs in different architecture.
-// This order we use here is the order for x86_64. See https://man7.org/linux/man-pages/man2/clone.2.html.
 pub fn sys_clone(
     clone_flags: u64,
     new_sp: u64,
     parent_tidptr: Vaddr,
-    child_tidptr: Vaddr,
-    tls: u64,
+    fourth_arg: u64,
+    fifth_arg: u64,
     ctx: &Context,
     parent_context: &UserContext,
 ) -> Result<SyscallReturn> {
+    // The raw clone(2) argument order differs by architecture:
+    // x86_64: flags, stack, parent_tid, child_tid, tls
+    // generic architectures such as RISC-V/AArch64: flags, stack, parent_tid, tls, child_tid
+    #[cfg(target_arch = "x86_64")]
+    let (child_tidptr, tls) = (fourth_arg as Vaddr, fifth_arg);
+    #[cfg(not(target_arch = "x86_64"))]
+    let (child_tidptr, tls) = (fifth_arg as Vaddr, fourth_arg);
+
     let args = CloneArgs::for_clone(clone_flags, parent_tidptr, child_tidptr, tls, new_sp)?;
     debug!("clone args = {:x?}", args);
 
