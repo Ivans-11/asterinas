@@ -3,8 +3,8 @@
 , conformanceTestWorkDir ? "/tmp", regressionTestPlatform ? "asterinas"
 , dnsServer ? "none", smp ? 1, initramfsCompressed ? true
 , firecrackerRiscv64Url ?
-  "https://github.com/Ivans-11/firecracker/releases/download/firecracker-riscv64-v0.1.0/firecracker-riscv64gc-unknown-linux-musl"
-, firecrackerRiscv64Sha256 ? "sha256-L951iq70esO2ernuREGVmdQmMTQpAuLCYRMDmDe5/T4=", }:
+  "https://github.com/Ivans-11/firecracker/releases/download/firecracker-riscv64-v0.1.1/firecracker-riscv64gc-unknown-linux-musl"
+, firecrackerRiscv64Sha256 ? "sha256-j9/JbST84tbiCCgyTZkl5DUgPawEo07SV5V9jX6Qeao=", }:
 let
   crossSystem.config = if target == "x86_64" then
     "x86_64-unknown-linux-gnu"

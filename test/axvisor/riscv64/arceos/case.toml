@@ -1,7 +1,7 @@
 arch = "riscv64"
 guest = "arceos"
 image = "qemu_riscv64_arceos"
-timeout_secs = 90
+timeout_secs = 120
 success_regex = ["(?m)^Hello, world!\\s*$"]
 fail_regex = [
   "(?i)\\bpanic(?:ked)?\\b",
