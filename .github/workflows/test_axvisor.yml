@@ -36,6 +36,11 @@ jobs:
             guest: ""
             case: smoke
             name: x86_64-control-smoke
+          - arch: x86_64
+            mode: control
+            guest: ""
+            case: firecracker-linux
+            name: x86_64-control-firecracker-linux
           - arch: riscv64
             mode: static
             guest: arceos
