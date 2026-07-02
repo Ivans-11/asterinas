@@ -84,6 +84,14 @@ impl ControlEndpointRuntime for AxvisorControlEndpointRuntime {
         write_user_fd_ref(user_fd_ref, buf).map_err(to_ax_error)
     }
 
+    fn read_user_fd_ref(
+        &self,
+        user_fd_ref: control::UserFdRefId,
+        buf: &mut [u8],
+    ) -> AxResult<usize> {
+        read_user_fd_ref(user_fd_ref, buf).map_err(to_ax_error)
+    }
+
     fn release_user_fd_ref(&self, user_fd_ref: control::UserFdRefId) -> AxResult {
         release_user_fd_ref(user_fd_ref).map_err(to_ax_error)
     }
@@ -405,6 +413,21 @@ fn write_user_fd_ref(user_fd_ref: control::UserFdRefId, buf: &[u8]) -> Result<us
     file.write(&mut reader)
 }
 
+fn read_user_fd_ref(user_fd_ref: control::UserFdRefId, buf: &mut [u8]) -> Result<usize> {
+    let file = USER_FD_REFS
+        .lock()
+        .get(&user_fd_ref)
+        .cloned()
+        .ok_or_else(|| Error::with_message(Errno::ENOENT, "user fd ref not found"))?;
+
+    if file.poll(IoEvents::IN, None).is_empty() {
+        return_errno_with_message!(Errno::EAGAIN, "user fd ref is not readable");
+    }
+
+    let mut writer = VmWriter::from(buf).to_fallible();
+    file.read(&mut writer)
+}
+
 fn clone_mmap_area(area: control::MmapAreaId) -> Result<Arc<Vmo>> {
     MMAP_AREAS
         .lock()
@@ -518,6 +541,7 @@ fn to_ax_error(err: Error) -> AxError {
         Errno::EEXIST => AxErrorKind::AlreadyExists.into(),
         Errno::EFAULT => AxErrorKind::BadAddress.into(),
         Errno::EINVAL => AxErrorKind::InvalidInput.into(),
+        Errno::EAGAIN => AxErrorKind::WouldBlock.into(),
         Errno::ENOMEM => AxErrorKind::NoMemory.into(),
         _ => AxErrorKind::Io.into(),
     }

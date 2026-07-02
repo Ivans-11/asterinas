@@ -96,6 +96,13 @@ pub trait ControlEndpointRuntime: Sync {
     /// Writes raw bytes to a previously retained userspace fd reference.
     fn write_user_fd_ref(&self, user_fd_ref: control::UserFdRefId, buf: &[u8]) -> AxResult<usize>;
 
+    /// Reads raw bytes from a previously retained userspace fd reference.
+    fn read_user_fd_ref(
+        &self,
+        user_fd_ref: control::UserFdRefId,
+        buf: &mut [u8],
+    ) -> AxResult<usize>;
+
     /// Releases a previously retained userspace fd reference.
     fn release_user_fd_ref(&self, user_fd_ref: control::UserFdRefId) -> AxResult;
 
@@ -537,6 +544,10 @@ impl control::ControlIf for ControlIfImpl {
 
     fn write_user_fd_ref(user_fd_ref: control::UserFdRefId, buf: &[u8]) -> AxResult<usize> {
         control_endpoint_runtime().write_user_fd_ref(user_fd_ref, buf)
+    }
+
+    fn read_user_fd_ref(user_fd_ref: control::UserFdRefId, buf: &mut [u8]) -> AxResult<usize> {
+        control_endpoint_runtime().read_user_fd_ref(user_fd_ref, buf)
     }
 
     fn release_user_fd_ref(user_fd_ref: control::UserFdRefId) -> AxResult {

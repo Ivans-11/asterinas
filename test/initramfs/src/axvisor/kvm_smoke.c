@@ -15,15 +15,30 @@
 	 (nr))
 #define KVM_GET_API_VERSION IOC(KVMIO, 0x00)
 #define KVM_CREATE_VM IOC(KVMIO, 0x01)
+#define KVM_GET_MSR_INDEX_LIST IOWR(KVMIO, 0x02, sizeof(struct kvm_msr_list_header))
 #define KVM_CHECK_EXTENSION IOC(KVMIO, 0x03)
 #define KVM_GET_VCPU_MMAP_SIZE IOC(KVMIO, 0x04)
+#define KVM_GET_SUPPORTED_CPUID IOWR(KVMIO, 0x05, sizeof(struct kvm_cpuid2_header))
 #define KVM_CREATE_VCPU IOC(KVMIO, 0x41)
 #define KVM_SET_USER_MEMORY_REGION IOW(KVMIO, 0x46, sizeof(struct kvm_userspace_memory_region))
+#define KVM_SET_TSS_ADDR IOC(KVMIO, 0x47)
+#define KVM_CREATE_IRQCHIP IOC(KVMIO, 0x60)
+#define KVM_SET_GSI_ROUTING IOW(KVMIO, 0x6a, sizeof(struct kvm_irq_routing_header))
+#define KVM_IRQFD IOW(KVMIO, 0x76, sizeof(struct kvm_irqfd))
+#define KVM_CREATE_PIT2 IOW(KVMIO, 0x77, sizeof(struct kvm_pit_config))
+#define KVM_IOEVENTFD IOW(KVMIO, 0x79, sizeof(struct kvm_ioeventfd))
 #define KVM_RUN IOC(KVMIO, 0x80)
 #define KVM_GET_REGS IOR(KVMIO, 0x81, sizeof(struct kvm_regs))
 #define KVM_SET_REGS IOW(KVMIO, 0x82, sizeof(struct kvm_regs))
 #define KVM_GET_SREGS IOR(KVMIO, 0x83, sizeof(struct kvm_sregs))
 #define KVM_SET_SREGS IOW(KVMIO, 0x84, sizeof(struct kvm_sregs))
+#define KVM_GET_MSRS IOWR(KVMIO, 0x88, sizeof(struct kvm_msrs_header))
+#define KVM_SET_MSRS IOW(KVMIO, 0x89, sizeof(struct kvm_msrs_header))
+#define KVM_SET_FPU IOW(KVMIO, 0x8d, sizeof(struct kvm_fpu))
+#define KVM_GET_LAPIC IOR(KVMIO, 0x8e, sizeof(struct kvm_lapic_state))
+#define KVM_SET_LAPIC IOW(KVMIO, 0x8f, sizeof(struct kvm_lapic_state))
+#define KVM_SET_CPUID2 IOW(KVMIO, 0x90, sizeof(struct kvm_cpuid2_header))
+#define KVM_GET_CPUID2 IOWR(KVMIO, 0x91, sizeof(struct kvm_cpuid2_header))
 #define KVM_GET_MP_STATE IOR(KVMIO, 0x98, sizeof(struct kvm_mp_state))
 #define KVM_GET_ONE_REG IOW(KVMIO, 0xab, sizeof(struct kvm_one_reg))
 #define KVM_SET_ONE_REG IOW(KVMIO, 0xac, sizeof(struct kvm_one_reg))
@@ -32,12 +47,35 @@
 #define KVM_EXIT_SHUTDOWN 8
 #define KVM_EXIT_HLT 5
 
+#define KVM_CAP_IRQCHIP 0
 #define KVM_CAP_USER_MEMORY 3
+#define KVM_CAP_SET_TSS_ADDR 4
+#define KVM_CAP_EXT_CPUID 7
 #define KVM_CAP_NR_VCPUS 9
 #define KVM_CAP_NR_MEMSLOTS 10
+#define KVM_CAP_MP_STATE 14
+#define KVM_CAP_IRQFD 32
+#define KVM_CAP_PIT2 33
+#define KVM_CAP_PIT_STATE2 35
+#define KVM_CAP_IOEVENTFD 36
+#define KVM_CAP_ADJUST_CLOCK 39
+#define KVM_CAP_VCPU_EVENTS 41
+#define KVM_CAP_DEBUGREGS 50
+#define KVM_CAP_XSAVE 55
+#define KVM_CAP_XCRS 56
 #define KVM_CAP_MAX_VCPUS 66
 #define KVM_CAP_ONE_REG 70
 #define KVM_CAP_IMMEDIATE_EXIT 136
+#define KVM_CAP_XSAVE2 208
+
+#define KVM_IOEVENTFD_FLAG_DATAMATCH (1U << 1)
+#define KVM_IOEVENTFD_FLAG_DEASSIGN (1U << 2)
+#define KVM_IOEVENTFD_FLAG_PIO (1U << 3)
+#define KVM_IRQFD_FLAG_DEASSIGN (1U << 0)
+#define KVM_IRQ_ROUTING_IRQCHIP 1
+#define KVM_IRQ_ROUTING_MSI 2
+#define KVM_MSR_IA32_TSC 0x00000010U
+#define KVM_MSR_EFER 0xc0000080U
 
 #if defined(__riscv) && __riscv_xlen == 64
 #define KVM_CAP_VCPUS_MIN 2
@@ -86,6 +124,119 @@ struct kvm_userspace_memory_region {
 	unsigned long long guest_phys_addr;
 	unsigned long long memory_size;
 	unsigned long long userspace_addr;
+};
+
+struct kvm_msr_list_header {
+	unsigned int nmsrs;
+};
+
+struct kvm_msr_list {
+	unsigned int nmsrs;
+	unsigned int indices[64];
+};
+
+struct kvm_cpuid_entry2 {
+	unsigned int function;
+	unsigned int index;
+	unsigned int flags;
+	unsigned int eax;
+	unsigned int ebx;
+	unsigned int ecx;
+	unsigned int edx;
+	unsigned int padding[3];
+};
+
+struct kvm_cpuid2_header {
+	unsigned int nent;
+	unsigned int padding;
+};
+
+struct kvm_cpuid2 {
+	unsigned int nent;
+	unsigned int padding;
+	struct kvm_cpuid_entry2 entries[256];
+};
+
+struct kvm_msr_entry {
+	unsigned int index;
+	unsigned int reserved;
+	unsigned long long data;
+};
+
+struct kvm_msrs_header {
+	unsigned int nmsrs;
+	unsigned int pad;
+};
+
+struct kvm_msrs {
+	unsigned int nmsrs;
+	unsigned int pad;
+	struct kvm_msr_entry entries[8];
+};
+
+struct kvm_fpu {
+	unsigned char bytes[416];
+};
+
+struct kvm_lapic_state {
+	unsigned char regs[1024];
+};
+
+struct kvm_pit_config {
+	unsigned int flags;
+	unsigned int pad[15];
+};
+
+struct kvm_ioeventfd {
+	unsigned long long datamatch;
+	unsigned long long addr;
+	unsigned int len;
+	int fd;
+	unsigned int flags;
+	unsigned char pad[36];
+};
+
+struct kvm_irq_routing_irqchip {
+	unsigned int irqchip;
+	unsigned int pin;
+};
+
+struct kvm_irq_routing_msi {
+	unsigned int address_lo;
+	unsigned int address_hi;
+	unsigned int data;
+	unsigned int pad;
+};
+
+struct kvm_irq_routing_entry {
+	unsigned int gsi;
+	unsigned int type;
+	unsigned int flags;
+	unsigned int pad;
+	union {
+		struct kvm_irq_routing_irqchip irqchip;
+		struct kvm_irq_routing_msi msi;
+		unsigned char pad[32];
+	} u;
+};
+
+struct kvm_irq_routing_header {
+	unsigned int nr;
+	unsigned int flags;
+};
+
+struct kvm_irq_routing {
+	unsigned int nr;
+	unsigned int flags;
+	struct kvm_irq_routing_entry entries[8];
+};
+
+struct kvm_irqfd {
+	unsigned int fd;
+	unsigned int gsi;
+	unsigned int flags;
+	unsigned int resamplefd;
+	unsigned char pad[16];
 };
 
 struct kvm_mp_state {
@@ -151,6 +302,11 @@ static unsigned char guest_memory[4096] __attribute__((aligned(4096)));
 #if defined(__x86_64__)
 static struct kvm_regs x86_regs;
 static struct kvm_sregs x86_sregs;
+static struct kvm_cpuid2 x86_cpuid;
+static struct kvm_msr_list x86_msr_list;
+static struct kvm_msrs x86_msrs;
+static struct kvm_fpu x86_fpu;
+static struct kvm_lapic_state x86_lapic;
 #endif
 
 #if defined(__riscv) && __riscv_xlen == 64
@@ -201,6 +357,7 @@ static void syscall1_noreturn(long nr, long a0)
 #define SYS_IOCTL 16
 #define SYS_MMAP 9
 #define SYS_OPENAT 257
+#define SYS_EVENTFD2 290
 #define SYS_EXIT 60
 
 static long syscall3(long nr, long a0, long a1, long a2)
@@ -269,6 +426,13 @@ static long sys_close(long fd)
 	return syscall3(SYS_CLOSE, fd, 0, 0);
 }
 
+#if defined(__x86_64__)
+static long sys_eventfd2(long initval, long flags)
+{
+	return syscall3(SYS_EVENTFD2, initval, flags, 0);
+}
+#endif
+
 static void sys_exit(long code)
 {
 	syscall1_noreturn(SYS_EXIT, code);
@@ -280,6 +444,15 @@ static long str_len(const char *s)
 	while (s[len] != '\0')
 		len++;
 	return len;
+}
+
+void *memset(void *s, int c, unsigned long n)
+{
+	unsigned char *p = s;
+
+	while (n--)
+		*p++ = (unsigned char)c;
+	return s;
 }
 
 static void puts(const char *s)
@@ -390,6 +563,191 @@ static int expect_reg_list_contains(long vcpufd, unsigned long long first, unsig
 #endif
 
 #if defined(__x86_64__)
+static int test_x86_system_abi(long fd)
+{
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_IRQCHIP, 1, "KVM_CAP_IRQCHIP") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_SET_TSS_ADDR, 1,
+			 "KVM_CAP_SET_TSS_ADDR") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_EXT_CPUID, 1,
+			 "KVM_CAP_EXT_CPUID") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_MP_STATE, 1, "KVM_CAP_MP_STATE") !=
+	    0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_IRQFD, 1, "KVM_CAP_IRQFD") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_PIT2, 1, "KVM_CAP_PIT2") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_PIT_STATE2, 1,
+			 "KVM_CAP_PIT_STATE2") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_IOEVENTFD, 1,
+			 "KVM_CAP_IOEVENTFD") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_ADJUST_CLOCK, 1,
+			 "KVM_CAP_ADJUST_CLOCK") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_DEBUGREGS, 1,
+			 "KVM_CAP_DEBUGREGS") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_VCPU_EVENTS, 1,
+			 "KVM_CAP_VCPU_EVENTS") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_XCRS, 1, "KVM_CAP_XCRS") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_XSAVE, 1, "KVM_CAP_XSAVE") != 0)
+		return 1;
+	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_XSAVE2, 0, "KVM_CAP_XSAVE2") != 0)
+		return 1;
+
+	x86_msr_list.nmsrs = 64;
+	if (expect_ioctl(fd, KVM_GET_MSR_INDEX_LIST, (long)&x86_msr_list, 0,
+			 "KVM_GET_MSR_INDEX_LIST") != 0)
+		return 1;
+	if (x86_msr_list.nmsrs == 0 || x86_msr_list.nmsrs > 64) {
+		puts("KVM_GET_MSR_INDEX_LIST returned unexpected count\n");
+		return 1;
+	}
+
+	x86_cpuid.nent = 256;
+	if (expect_ioctl(fd, KVM_GET_SUPPORTED_CPUID, (long)&x86_cpuid, 0,
+			 "KVM_GET_SUPPORTED_CPUID") != 0)
+		return 1;
+	if (x86_cpuid.nent == 0 || x86_cpuid.nent > 256) {
+		puts("KVM_GET_SUPPORTED_CPUID returned unexpected count\n");
+		return 1;
+	}
+
+	return 0;
+}
+
+static int test_x86_vm_abi(long vmfd)
+{
+	long ioeventfd;
+	long irqeventfd;
+	struct kvm_pit_config pit = { .flags = 0 };
+	struct kvm_irq_routing routing = { 0 };
+	struct kvm_ioeventfd ioevent = { 0 };
+	struct kvm_irqfd irqfd = { 0 };
+
+	if (expect_ioctl(vmfd, KVM_SET_TSS_ADDR, 0xfffbd000, 0, "KVM_SET_TSS_ADDR") != 0)
+		return 1;
+	if (expect_ioctl(vmfd, KVM_CREATE_IRQCHIP, 0, 0, "KVM_CREATE_IRQCHIP") != 0)
+		return 1;
+	if (expect_ioctl(vmfd, KVM_CREATE_PIT2, (long)&pit, 0, "KVM_CREATE_PIT2") != 0)
+		return 1;
+
+	routing.nr = 2;
+	routing.entries[0].gsi = 4;
+	routing.entries[0].type = KVM_IRQ_ROUTING_IRQCHIP;
+	routing.entries[0].u.irqchip.irqchip = 0;
+	routing.entries[0].u.irqchip.pin = 4;
+	routing.entries[1].gsi = 5;
+	routing.entries[1].type = KVM_IRQ_ROUTING_MSI;
+	routing.entries[1].u.msi.address_lo = 0xfee00000;
+	routing.entries[1].u.msi.data = 0x45;
+	if (expect_ioctl(vmfd, KVM_SET_GSI_ROUTING, (long)&routing, 0, "KVM_SET_GSI_ROUTING") !=
+	    0)
+		return 1;
+
+	ioeventfd = sys_eventfd2(0, 0);
+	if (ioeventfd < 0) {
+		puts("eventfd2 for KVM_IOEVENTFD failed\n");
+		return 1;
+	}
+	ioevent.addr = 0x3f8;
+	ioevent.len = 1;
+	ioevent.fd = (int)ioeventfd;
+	ioevent.flags = KVM_IOEVENTFD_FLAG_PIO;
+	if (expect_ioctl(vmfd, KVM_IOEVENTFD, (long)&ioevent, 0, "KVM_IOEVENTFD assign") != 0)
+		return 1;
+	ioevent.flags |= KVM_IOEVENTFD_FLAG_DEASSIGN;
+	if (expect_ioctl(vmfd, KVM_IOEVENTFD, (long)&ioevent, 0, "KVM_IOEVENTFD deassign") !=
+	    0)
+		return 1;
+	sys_close(ioeventfd);
+
+	irqeventfd = sys_eventfd2(0, 0);
+	if (irqeventfd < 0) {
+		puts("eventfd2 for KVM_IRQFD failed\n");
+		return 1;
+	}
+	irqfd.fd = (unsigned int)irqeventfd;
+	irqfd.gsi = 5;
+	if (expect_ioctl(vmfd, KVM_IRQFD, (long)&irqfd, 0, "KVM_IRQFD assign") != 0)
+		return 1;
+	irqfd.flags = KVM_IRQFD_FLAG_DEASSIGN;
+	if (expect_ioctl(vmfd, KVM_IRQFD, (long)&irqfd, 0, "KVM_IRQFD deassign") != 0)
+		return 1;
+	sys_close(irqeventfd);
+
+	return 0;
+}
+
+static int test_x86_vcpu_abi(long vcpufd)
+{
+	unsigned int cpuid_count;
+
+	cpuid_count = x86_cpuid.nent;
+	if (cpuid_count > 16)
+		cpuid_count = 16;
+	if (cpuid_count == 0) {
+		puts("no x86 cpuid entries available\n");
+		return 1;
+	}
+	x86_cpuid.nent = cpuid_count;
+	if (expect_ioctl(vcpufd, KVM_SET_CPUID2, (long)&x86_cpuid, 0, "KVM_SET_CPUID2") != 0)
+		return 1;
+	x86_cpuid.nent = 256;
+	if (expect_ioctl(vcpufd, KVM_GET_CPUID2, (long)&x86_cpuid, 0, "KVM_GET_CPUID2") != 0)
+		return 1;
+	if (x86_cpuid.nent != cpuid_count) {
+		puts("KVM_GET_CPUID2 returned unexpected count\n");
+		return 1;
+	}
+
+	x86_msrs.nmsrs = 2;
+	x86_msrs.entries[0].index = KVM_MSR_IA32_TSC;
+	x86_msrs.entries[0].data = 0x12345678ULL;
+	x86_msrs.entries[1].index = KVM_MSR_EFER;
+	x86_msrs.entries[1].data = 0x500ULL;
+	if (expect_ioctl(vcpufd, KVM_SET_MSRS, (long)&x86_msrs, 2, "KVM_SET_MSRS") != 0)
+		return 1;
+	x86_msrs.entries[0].data = 0;
+	x86_msrs.entries[1].data = 0;
+	if (expect_ioctl(vcpufd, KVM_GET_MSRS, (long)&x86_msrs, 2, "KVM_GET_MSRS") != 0)
+		return 1;
+	if (x86_msrs.entries[0].data != 0x12345678ULL || x86_msrs.entries[1].data != 0x500ULL) {
+		puts("KVM_GET_MSRS returned unexpected values\n");
+		return 1;
+	}
+
+	x86_fpu.bytes[128] = 0x7f;
+	x86_fpu.bytes[129] = 0x03;
+	x86_fpu.bytes[408] = 0x80;
+	x86_fpu.bytes[409] = 0x1f;
+	if (expect_ioctl(vcpufd, KVM_SET_FPU, (long)&x86_fpu, 0, "KVM_SET_FPU") != 0)
+		return 1;
+
+	if (expect_ioctl(vcpufd, KVM_GET_LAPIC, (long)&x86_lapic, 0, "KVM_GET_LAPIC") != 0)
+		return 1;
+	x86_lapic.regs[0x30] = 0x14;
+	if (expect_ioctl(vcpufd, KVM_SET_LAPIC, (long)&x86_lapic, 0, "KVM_SET_LAPIC") != 0)
+		return 1;
+	x86_lapic.regs[0x30] = 0;
+	if (expect_ioctl(vcpufd, KVM_GET_LAPIC, (long)&x86_lapic, 0,
+			 "KVM_GET_LAPIC verify") != 0)
+		return 1;
+	if (x86_lapic.regs[0x30] != 0x14) {
+		puts("KVM_GET_LAPIC returned unexpected state\n");
+		return 1;
+	}
+
+	return 0;
+}
+
 static int test_x86_regs(long vcpufd)
 {
 	struct kvm_regs *regs = &x86_regs;
@@ -463,6 +821,8 @@ static int main(void)
 #elif defined(__x86_64__)
 	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_ONE_REG, 0, "KVM_CAP_ONE_REG") != 0)
 		return 1;
+	if (test_x86_system_abi(fd) != 0)
+		return 1;
 #endif
 	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_IMMEDIATE_EXIT, 1,
 			 "KVM_CAP_IMMEDIATE_EXIT") != 0)
@@ -479,6 +839,10 @@ static int main(void)
 	if (expect_ioctl_errno(vmfd, KVM_GET_API_VERSION, 0, ENOTTY,
 			       "VM fd KVM_GET_API_VERSION") != 0)
 		return 1;
+#if defined(__x86_64__)
+	if (test_x86_vm_abi(vmfd) != 0)
+		return 1;
+#endif
 
 	struct kvm_userspace_memory_region memory_region = {
 		.slot = 0,
@@ -573,6 +937,8 @@ static int main(void)
 		return 1;
 	}
 #elif defined(__x86_64__)
+	if (test_x86_vcpu_abi(vcpufd) != 0)
+		return 1;
 	if (test_x86_regs(vcpufd) != 0)
 		return 1;
 
