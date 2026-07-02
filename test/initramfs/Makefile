@@ -12,6 +12,8 @@ ENABLE_REGRESSION_TEST ?= false
 # - linux: Define only `__linux__`. Tests may fail in Asterinas.
 REGRESSION_TEST_PLATFORM ?= asterinas
 DNS_SERVER ?= none
+FIRECRACKER_X86_64_URL ?= https://github.com/firecracker-microvm/firecracker/releases/download/v1.16.0/firecracker-v1.16.0-x86_64.tgz
+FIRECRACKER_X86_64_SHA256 ?= sha256-vQTiaVLU4VgIV3jGIwoLOD0mGcMZGC4n6qnWGiEuktY=
 FIRECRACKER_RISCV64_URL ?= https://github.com/Ivans-11/firecracker/releases/download/firecracker-riscv64-v0.1.1/firecracker-riscv64gc-unknown-linux-musl
 FIRECRACKER_RISCV64_SHA256 ?= sha256-j9/JbST84tbiCCgyTZkl5DUgPawEo07SV5V9jX6Qeao=
 # Set Nix's cached tarballs to be live for a longer period of time (30 days) to avoid network traffics.
@@ -81,6 +83,8 @@ $(INITRAMFS_IMAGE): $(INITRAMFS)
 		--argstr conformanceTestWorkDir $(CONFORMANCE_TEST_WORKDIR) \
 		--argstr regressionTestPlatform $(REGRESSION_TEST_PLATFORM) \
 		--argstr dnsServer ${DNS_SERVER} \
+		--argstr firecrackerX86_64Url "$(FIRECRACKER_X86_64_URL)" \
+		--argstr firecrackerX86_64Sha256 "$(FIRECRACKER_X86_64_SHA256)" \
 		--argstr firecrackerRiscv64Url "$(FIRECRACKER_RISCV64_URL)" \
 		--argstr firecrackerRiscv64Sha256 "$(FIRECRACKER_RISCV64_SHA256)" \
 		--arg initramfsCompressed $(INITRAMFS_COMPRESSED) \
@@ -100,6 +104,8 @@ $(INITRAMFS):
 		--argstr conformanceTestWorkDir $(CONFORMANCE_TEST_WORKDIR) \
 		--argstr regressionTestPlatform $(REGRESSION_TEST_PLATFORM) \
 		--argstr dnsServer ${DNS_SERVER} \
+		--argstr firecrackerX86_64Url "$(FIRECRACKER_X86_64_URL)" \
+		--argstr firecrackerX86_64Sha256 "$(FIRECRACKER_X86_64_SHA256)" \
 		--argstr firecrackerRiscv64Url "$(FIRECRACKER_RISCV64_URL)" \
 		--argstr firecrackerRiscv64Sha256 "$(FIRECRACKER_RISCV64_SHA256)" \
 		--arg smp $(SMP) \

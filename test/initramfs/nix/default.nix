@@ -2,6 +2,10 @@
 , enableRegressionTest ? false, conformanceTestSuite ? "ltp"
 , conformanceTestWorkDir ? "/tmp", regressionTestPlatform ? "asterinas"
 , dnsServer ? "none", smp ? 1, initramfsCompressed ? true
+, firecrackerX86_64Url ?
+  "https://github.com/firecracker-microvm/firecracker/releases/download/v1.16.0/firecracker-v1.16.0-x86_64.tgz"
+, firecrackerX86_64Sha256 ?
+  "sha256-vQTiaVLU4VgIV3jGIwoLOD0mGcMZGC4n6qnWGiEuktY="
 , firecrackerRiscv64Url ?
   "https://github.com/Ivans-11/firecracker/releases/download/firecracker-riscv64-v0.1.1/firecracker-riscv64gc-unknown-linux-musl"
 , firecrackerRiscv64Sha256 ? "sha256-j9/JbST84tbiCCgyTZkl5DUgPawEo07SV5V9jX6Qeao=", }:
@@ -37,7 +41,8 @@ in rec {
     pkgs.callPackage ./regression { testPlatform = regressionTestPlatform; };
   axvisorTests = pkgs.callPackage ./axvisor {
     targetArch = target;
-    inherit firecrackerRiscv64Url firecrackerRiscv64Sha256;
+    inherit firecrackerX86_64Url firecrackerX86_64Sha256
+      firecrackerRiscv64Url firecrackerRiscv64Sha256;
   };
 
   initramfs = pkgs.callPackage ./initramfs.nix {
