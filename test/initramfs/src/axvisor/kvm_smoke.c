@@ -68,9 +68,9 @@
 #define KVM_CAP_IMMEDIATE_EXIT 136
 #define KVM_CAP_XSAVE2 208
 
-#define KVM_IOEVENTFD_FLAG_DATAMATCH (1U << 1)
+#define KVM_IOEVENTFD_FLAG_DATAMATCH (1U << 0)
+#define KVM_IOEVENTFD_FLAG_PIO (1U << 1)
 #define KVM_IOEVENTFD_FLAG_DEASSIGN (1U << 2)
-#define KVM_IOEVENTFD_FLAG_PIO (1U << 3)
 #define KVM_IRQFD_FLAG_DEASSIGN (1U << 0)
 #define KVM_IRQ_ROUTING_IRQCHIP 1
 #define KVM_IRQ_ROUTING_MSI 2
@@ -307,6 +307,10 @@ static struct kvm_msr_list x86_msr_list;
 static struct kvm_msrs x86_msrs;
 static struct kvm_fpu x86_fpu;
 static struct kvm_lapic_state x86_lapic;
+static struct kvm_pit_config x86_pit;
+static struct kvm_irq_routing x86_routing;
+static struct kvm_ioeventfd x86_ioevent;
+static struct kvm_irqfd x86_irqfd;
 #endif
 
 #if defined(__riscv) && __riscv_xlen == 64
@@ -627,29 +631,30 @@ static int test_x86_vm_abi(long vmfd)
 {
 	long ioeventfd;
 	long irqeventfd;
-	struct kvm_pit_config pit = { .flags = 0 };
-	struct kvm_irq_routing routing = { 0 };
-	struct kvm_ioeventfd ioevent = { 0 };
-	struct kvm_irqfd irqfd = { 0 };
+
+	memset(&x86_pit, 0, sizeof(x86_pit));
+	memset(&x86_routing, 0, sizeof(x86_routing));
+	memset(&x86_ioevent, 0, sizeof(x86_ioevent));
+	memset(&x86_irqfd, 0, sizeof(x86_irqfd));
 
 	if (expect_ioctl(vmfd, KVM_SET_TSS_ADDR, 0xfffbd000, 0, "KVM_SET_TSS_ADDR") != 0)
 		return 1;
 	if (expect_ioctl(vmfd, KVM_CREATE_IRQCHIP, 0, 0, "KVM_CREATE_IRQCHIP") != 0)
 		return 1;
-	if (expect_ioctl(vmfd, KVM_CREATE_PIT2, (long)&pit, 0, "KVM_CREATE_PIT2") != 0)
+	if (expect_ioctl(vmfd, KVM_CREATE_PIT2, (long)&x86_pit, 0, "KVM_CREATE_PIT2") != 0)
 		return 1;
 
-	routing.nr = 2;
-	routing.entries[0].gsi = 4;
-	routing.entries[0].type = KVM_IRQ_ROUTING_IRQCHIP;
-	routing.entries[0].u.irqchip.irqchip = 0;
-	routing.entries[0].u.irqchip.pin = 4;
-	routing.entries[1].gsi = 5;
-	routing.entries[1].type = KVM_IRQ_ROUTING_MSI;
-	routing.entries[1].u.msi.address_lo = 0xfee00000;
-	routing.entries[1].u.msi.data = 0x45;
-	if (expect_ioctl(vmfd, KVM_SET_GSI_ROUTING, (long)&routing, 0, "KVM_SET_GSI_ROUTING") !=
-	    0)
+	x86_routing.nr = 2;
+	x86_routing.entries[0].gsi = 4;
+	x86_routing.entries[0].type = KVM_IRQ_ROUTING_IRQCHIP;
+	x86_routing.entries[0].u.irqchip.irqchip = 0;
+	x86_routing.entries[0].u.irqchip.pin = 4;
+	x86_routing.entries[1].gsi = 5;
+	x86_routing.entries[1].type = KVM_IRQ_ROUTING_MSI;
+	x86_routing.entries[1].u.msi.address_lo = 0xfee00000;
+	x86_routing.entries[1].u.msi.data = 0x45;
+	if (expect_ioctl(vmfd, KVM_SET_GSI_ROUTING, (long)&x86_routing, 0,
+			 "KVM_SET_GSI_ROUTING") != 0)
 		return 1;
 
 	ioeventfd = sys_eventfd2(0, 0);
@@ -657,15 +662,16 @@ static int test_x86_vm_abi(long vmfd)
 		puts("eventfd2 for KVM_IOEVENTFD failed\n");
 		return 1;
 	}
-	ioevent.addr = 0x3f8;
-	ioevent.len = 1;
-	ioevent.fd = (int)ioeventfd;
-	ioevent.flags = KVM_IOEVENTFD_FLAG_PIO;
-	if (expect_ioctl(vmfd, KVM_IOEVENTFD, (long)&ioevent, 0, "KVM_IOEVENTFD assign") != 0)
-		return 1;
-	ioevent.flags |= KVM_IOEVENTFD_FLAG_DEASSIGN;
-	if (expect_ioctl(vmfd, KVM_IOEVENTFD, (long)&ioevent, 0, "KVM_IOEVENTFD deassign") !=
+	x86_ioevent.addr = 0x3f8;
+	x86_ioevent.len = 1;
+	x86_ioevent.fd = (int)ioeventfd;
+	x86_ioevent.flags = KVM_IOEVENTFD_FLAG_PIO;
+	if (expect_ioctl(vmfd, KVM_IOEVENTFD, (long)&x86_ioevent, 0, "KVM_IOEVENTFD assign") !=
 	    0)
+		return 1;
+	x86_ioevent.flags |= KVM_IOEVENTFD_FLAG_DEASSIGN;
+	if (expect_ioctl(vmfd, KVM_IOEVENTFD, (long)&x86_ioevent, 0,
+			 "KVM_IOEVENTFD deassign") != 0)
 		return 1;
 	sys_close(ioeventfd);
 
@@ -674,12 +680,12 @@ static int test_x86_vm_abi(long vmfd)
 		puts("eventfd2 for KVM_IRQFD failed\n");
 		return 1;
 	}
-	irqfd.fd = (unsigned int)irqeventfd;
-	irqfd.gsi = 5;
-	if (expect_ioctl(vmfd, KVM_IRQFD, (long)&irqfd, 0, "KVM_IRQFD assign") != 0)
+	x86_irqfd.fd = (unsigned int)irqeventfd;
+	x86_irqfd.gsi = 5;
+	if (expect_ioctl(vmfd, KVM_IRQFD, (long)&x86_irqfd, 0, "KVM_IRQFD assign") != 0)
 		return 1;
-	irqfd.flags = KVM_IRQFD_FLAG_DEASSIGN;
-	if (expect_ioctl(vmfd, KVM_IRQFD, (long)&irqfd, 0, "KVM_IRQFD deassign") != 0)
+	x86_irqfd.flags = KVM_IRQFD_FLAG_DEASSIGN;
+	if (expect_ioctl(vmfd, KVM_IRQFD, (long)&x86_irqfd, 0, "KVM_IRQFD deassign") != 0)
 		return 1;
 	sys_close(irqeventfd);
 
