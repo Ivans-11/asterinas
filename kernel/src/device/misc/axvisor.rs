@@ -32,7 +32,7 @@ use crate::{
         },
     },
     prelude::*,
-    process::signal::{PollHandle, Pollable},
+    process::signal::{PollHandle, Pollable, Poller},
     util::ioctl::RawIoctl,
     vm::page_cache::{Vmo, VmoOptions},
 };
@@ -420,12 +420,22 @@ fn read_user_fd_ref(user_fd_ref: control::UserFdRefId, buf: &mut [u8]) -> Result
         .cloned()
         .ok_or_else(|| Error::with_message(Errno::ENOENT, "user fd ref not found"))?;
 
-    if file.poll(IoEvents::IN, None).is_empty() {
-        return_errno_with_message!(Errno::EAGAIN, "user fd ref is not readable");
-    }
+    loop {
+        let mut writer = VmWriter::from(&mut *buf).to_fallible();
+        match file.read(&mut writer) {
+            Err(err) if err.error() == Errno::EAGAIN => {}
+            result => return result,
+        }
 
-    let mut writer = VmWriter::from(buf).to_fallible();
-    file.read(&mut writer)
+        let mut poller = Poller::new(None);
+        if !file
+            .poll(IoEvents::IN, Some(poller.as_handle_mut()))
+            .is_empty()
+        {
+            continue;
+        }
+        poller.wait()?;
+    }
 }
 
 fn clone_mmap_area(area: control::MmapAreaId) -> Result<Arc<Vmo>> {

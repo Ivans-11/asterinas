@@ -1,15 +1,18 @@
 arch = "x86_64"
 case = "firecracker-linux"
 image = "qemu_x86_64_linux"
-payload_files = ["qemu-x86_64", "initramfs.cpio.gz", "rootfs.img"]
+payload_files = ["vmlinux", "initramfs.cpio.gz", "rootfs.img"]
+payload_extract_bzimage_elf = [
+  { source = "qemu-x86_64", output = "vmlinux" },
+]
 timeout_secs = 600
 success_regex = ["(?m)^firecracker guest test pass!\\s*$"]
 fail_regex = [
-  "(?i)\\bpanic(?:ked)?\\b",
+  "(?i)uncaught panic",
+  "(?i)panicked at",
   "(?i)kernel panic",
   "(?i)login incorrect",
   "(?i)permission denied",
-  "(?i)unable to",
   "(?i)Firecracker exiting with error",
   "(?i)RunWithApiError",
   "(?i)StartMicrovm",

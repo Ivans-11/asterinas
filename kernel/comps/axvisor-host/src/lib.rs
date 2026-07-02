@@ -513,9 +513,13 @@ impl task::TaskIf for TaskIfImpl {
 
     fn current_task() -> Option<task::TaskHandle> {
         let current = Task::current()?.cloned();
-        TASKS.lock().iter().find_map(|(&handle, entry)| {
+        if let Some(handle) = TASKS.lock().iter().find_map(|(&handle, entry)| {
             Arc::ptr_eq(&current, &entry.task).then_some(task::TaskHandle::from_raw(handle))
-        })
+        }) {
+            return Some(handle);
+        }
+
+        Some(task::TaskHandle::from_raw(Arc::as_ptr(&current) as usize))
     }
 
     fn yield_now() {

@@ -1,11 +1,12 @@
 use std::{
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use flate2::read::GzDecoder;
 use regex::Regex;
 use serde::Deserialize;
 
@@ -25,6 +26,8 @@ pub struct CaseManifest {
     pub image: Option<String>,
     #[serde(default)]
     pub payload_files: Vec<String>,
+    #[serde(default)]
+    pub payload_extract_bzimage_elf: Vec<PayloadBzImageElf>,
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
     #[serde(default)]
@@ -39,6 +42,12 @@ pub struct CaseManifest {
     pub extra_features: Vec<String>,
     #[serde(default)]
     pub extra_qemu_args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PayloadBzImageElf {
+    pub source: String,
+    pub output: String,
 }
 
 fn default_timeout_secs() -> u64 {
@@ -219,10 +228,48 @@ fn build_payload_image(
     fs::create_dir_all(&payload_dir)
         .with_context(|| format!("failed to create {}", payload_dir.display()))?;
     copy_dir_contents(image_dir, &payload_dir)?;
+    extract_payload_bzimage_elfs(&payload_dir, &loaded.manifest.payload_extract_bzimage_elf)?;
 
     let image_path = case_dir.join("payload.ext2.img");
     build_ext2_image_from_dir(&payload_dir, &image_path, &loaded.manifest.payload_files)?;
     Ok(image_path)
+}
+
+fn extract_payload_bzimage_elfs(payload_dir: &Path, entries: &[PayloadBzImageElf]) -> Result<()> {
+    for entry in entries {
+        let source = payload_dir.join(&entry.source);
+        let output = payload_dir.join(&entry.output);
+        extract_bzimage_elf(&source, &output).with_context(|| {
+            format!(
+                "failed to extract ELF kernel {} from bzImage {}",
+                output.display(),
+                source.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn extract_bzimage_elf(source: &Path, output: &Path) -> Result<()> {
+    const GZIP_MAGIC: &[u8] = &[0x1f, 0x8b, 0x08];
+    const ELF_MAGIC: &[u8] = b"\x7fELF";
+
+    let image = fs::read(source).with_context(|| format!("failed to read {}", source.display()))?;
+    for offset in image
+        .windows(GZIP_MAGIC.len())
+        .enumerate()
+        .filter_map(|(offset, bytes)| (bytes == GZIP_MAGIC).then_some(offset))
+    {
+        let mut decoder = GzDecoder::new(&image[offset..]);
+        let mut decoded = Vec::new();
+        if decoder.read_to_end(&mut decoded).is_ok() && decoded.starts_with(ELF_MAGIC) {
+            fs::write(output, decoded)
+                .with_context(|| format!("failed to write {}", output.display()))?;
+            return Ok(());
+        }
+    }
+
+    bail!("no gzip-compressed ELF payload found in {}", source.display())
 }
 
 fn render_token(

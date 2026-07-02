@@ -1,6 +1,6 @@
 {
   "boot-source": {
-    "kernel_image_path": "/ext2/qemu-x86_64",
+    "kernel_image_path": "/ext2/vmlinux",
     "initrd_path": "/ext2/initramfs.cpio.gz",
     "boot_args": "console=ttyS0 reboot=k panic=1 pci=off init=/init root=/dev/vda rw"
   },
