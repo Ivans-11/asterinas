@@ -14,17 +14,18 @@ fail_regex = [
   "(?i)RunWithApiError",
   "(?i)StartMicrovm",
   "(?i)KVM_.*failed",
+  "(?i)firecracker payload mount failed",
 ]
 extra_qemu_args = [
   "-drive",
   "if=none,format=raw,id=firecracker_linux_payload,file={control_payload_image}",
   "-device",
-  "virtio-blk-pci,drive=firecracker_linux_payload,addr=04.0",
+  "virtio-blk-pci,bus=pcie.0,addr=0x6,drive=firecracker_linux_payload,serial=vaxvisorfc,disable-legacy=on,disable-modern=off,queue-size=64,num-queues=1,request-merging=off,backend_defaults=off,discard=off,write-zeroes=off,event_idx=off,indirect_desc=off,queue_reset=off",
 ]
 
 [[interactions]]
 expect = "~ # "
-send = "umount /ext2 2>/dev/null; mount -t ext2 /dev/vda /ext2 && /test/firecracker --no-api --no-seccomp --config-file /test/firecracker-x86_64.json --level Debug"
+send = "umount /ext2 2>/dev/null; (mount -t ext2 /dev/vda /ext2 || { echo firecracker payload mount failed; ls /dev; false; }) && /test/firecracker --no-api --no-seccomp --config-file /test/firecracker-x86_64.json --level Debug"
 
 [[interactions]]
 expect = "job control turned off"
