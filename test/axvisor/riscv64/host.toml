@@ -8,7 +8,7 @@ host_qemu_args = [
   "-m",
   "8G",
   "-smp",
-  "1",
+  "2",
   "--no-reboot",
   "-nographic",
   "-display",

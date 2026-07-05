@@ -28,4 +28,4 @@ send = "umount /ext2 2>/dev/null; mount -t ext2 /dev/vda /ext2 && /test/firecrac
 
 [[interactions]]
 expect = "job control turned off"
-send = "cat /proc/cpuinfo;ls /proc;echo firecracker guest test\\ pass!"
+send = "cat /proc/cpuinfo; test \"$(grep -c '^processor' /proc/cpuinfo)\" -ge 2 && echo firecracker guest test\\ pass!"

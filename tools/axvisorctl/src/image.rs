@@ -63,17 +63,41 @@ impl ImageStore {
         let entry = if let Some(entry) = registry.find_latest(name) {
             entry
         } else {
-            fallback_registry = ImageRegistry::fetch_with_includes(&self.client, &fallback_registry_url)
-                .with_context(|| {
-                    format!(
-                        "image `{name}` not found in latest registry and failed to fetch fallback registry {fallback_registry_url}"
-                    )
-                })?;
-            fallback_registry.find_latest(name).ok_or_else(|| {
-                anyhow!(
-                    "image `{name}` not found in latest registry or fallback registry {fallback_registry_url}"
-                )
-            })?
+            fallback_registry = match ImageRegistry::fetch_with_includes(
+                &self.client,
+                &fallback_registry_url,
+            ) {
+                Ok(registry) => registry,
+                Err(err) if extract_dir.is_dir() => {
+                    eprintln!(
+                        "warning: image `{name}` not found in latest registry and failed to fetch fallback registry {fallback_registry_url} ({err}); reusing cached {}",
+                        extract_dir.display()
+                    );
+                    return Ok(extract_dir);
+                }
+                Err(err) => {
+                    return Err(err).with_context(|| {
+                            format!(
+                                "image `{name}` not found in latest registry and failed to fetch fallback registry {fallback_registry_url}"
+                            )
+                        });
+                }
+            };
+            match fallback_registry.find_latest(name) {
+                Some(entry) => entry,
+                None if extract_dir.is_dir() => {
+                    eprintln!(
+                        "warning: image `{name}` not found in latest or fallback registry {fallback_registry_url}; reusing cached {}",
+                        extract_dir.display()
+                    );
+                    return Ok(extract_dir);
+                }
+                None => {
+                    return Err(anyhow!(
+                        "image `{name}` not found in latest registry or fallback registry {fallback_registry_url}"
+                    ));
+                }
+            }
         };
         if extracted_archive_matches(&extract_dir, &entry.sha256)? {
             return Ok(extract_dir);
