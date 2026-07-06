@@ -47,6 +47,10 @@ pub(super) fn init(fdt_node: FdtNode) {
     };
 
     let reg_addr = reg.starting_address as usize;
+    if aster_util::axvisor::is_static_passthrough_mmio_range(reg_addr, reg_size) {
+        return;
+    }
+
     let Ok(io_mem) = IoMem::acquire(reg_addr..reg_addr + reg_size) else {
         ostd::info!("I/O memory is not available for NS16550A");
         return;

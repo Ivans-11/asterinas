@@ -31,5 +31,5 @@ expect = "~ # "
 send = "umount /ext2 2>/dev/null; (mount -t ext2 /dev/vda /ext2 || { echo firecracker payload mount failed; ls /dev; false; }) && /test/firecracker --no-api --no-seccomp --config-file /test/firecracker-x86_64.json --level Debug"
 
 [[interactions]]
-expect = "job control turned off"
-send = "cat /proc/cpuinfo;echo firecracker guest test\\ pass!"
+expect = "~ # "
+send = "/bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); test \"$n\" -ge 2 && echo 'firecracker guest test pass!'"

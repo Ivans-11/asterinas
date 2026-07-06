@@ -6,6 +6,7 @@
 
 extern crate alloc;
 
+pub mod axvisor;
 pub mod coeff;
 pub mod dup;
 pub mod fixed_point;

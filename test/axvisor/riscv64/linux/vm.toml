@@ -4,8 +4,8 @@
 id = 1
 name = "linux-qemu"
 vm_type = 1
-cpu_num = 1
-phys_cpu_ids = [0]
+cpu_num = 2
+phys_cpu_ids = [0, 1]
 
 #
 # Vm kernel configs
@@ -41,5 +41,5 @@ passthrough_addresses = [
 excluded_devices = []
 
 emu_devices = [
-  ["plic", 0x0c00_0000, 0x60_0000, 0, 0x30, [2]],
+  ["plic", 0x0c00_0000, 0x60_0000, 0, 0x30, [4]],
 ]

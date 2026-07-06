@@ -24,4 +24,4 @@ send = "umount /ext2 2>/dev/null; mount -t ext2 /dev/vda /ext2 && /test/lkvm run
 
 [[interactions]]
 expect = "~ # "
-send = "cat /proc/cpuinfo; test \"$(grep -c '^processor' /proc/cpuinfo)\" -ge 2 && echo guest test\\ pass!"
+send = "/bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); test \"$n\" -ge 2 && echo 'guest test pass!'"

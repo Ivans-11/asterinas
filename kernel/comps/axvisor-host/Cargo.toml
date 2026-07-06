@@ -16,6 +16,7 @@ aster-console.workspace = true
 aster-logger.workspace = true
 aster-time.workspace = true
 ax-errno = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core" }
+ax-kspin = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core", features = ["smp"] }
 ax-percpu = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core", features = ["custom-base"] }
 axvisor_api = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core", default-features = false }
 axvisor_core = { git = "https://github.com/Ivans-11/tgoskits", branch = "axvisor-core", default-features = false }

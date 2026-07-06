@@ -124,6 +124,19 @@ struct StagedCase {
     scheme: String,
     features: Vec<String>,
     rendered_qemu_args: Vec<String>,
+    passthrough_mmio_kcmd_args: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AxvisorVmConfig {
+    #[serde(default)]
+    devices: AxvisorVmDeviceConfig,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct AxvisorVmDeviceConfig {
+    #[serde(default)]
+    passthrough_addresses: Vec<[usize; 2]>,
 }
 
 #[derive(Debug, Clone)]
@@ -518,6 +531,7 @@ fn stage_case(workspace: &Workspace, arch: Option<Arch>, guest: &str) -> Result<
         .chain(loaded.manifest.extra_qemu_args.iter())
         .map(|arg| render_case_token(arg, &staged_dir, &image_dir, &workspace.root))
         .collect();
+    let passthrough_mmio_kcmd_args = load_passthrough_mmio_kcmd_args(&staged_dir.join("vm.toml"))?;
 
     Ok(StagedCase {
         scheme: loaded.host.manifest.scheme.clone(),
@@ -525,8 +539,22 @@ fn stage_case(workspace: &Workspace, arch: Option<Arch>, guest: &str) -> Result<
         vmconfig: staged_dir.join("vm.toml"),
         image_dir,
         rendered_qemu_args,
+        passthrough_mmio_kcmd_args,
         loaded,
     })
+}
+
+fn load_passthrough_mmio_kcmd_args(vmconfig: &Path) -> Result<Vec<String>> {
+    let text =
+        fs::read_to_string(vmconfig).with_context(|| format!("failed to read {}", vmconfig.display()))?;
+    let config: AxvisorVmConfig =
+        toml::from_str(&text).with_context(|| format!("failed to parse {}", vmconfig.display()))?;
+    Ok(config
+        .devices
+        .passthrough_addresses
+        .into_iter()
+        .map(|[base, size]| format!("axvisor.passthrough_mmio={base:#x}:{size:#x}"))
+        .collect())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -589,6 +617,11 @@ pub(crate) fn build_osdk_command(
 
     if let Some(case) = staged_case {
         command.env("AXVISOR_VM_CONFIGS", &case.vmconfig);
+        if axvisor_mode == AxvisorMode::Static {
+            for arg in &case.passthrough_mmio_kcmd_args {
+                command.arg(format!("--kcmd-args={arg}"));
+            }
+        }
     }
 
     if matches!(mode, OsdkMode::Run) {

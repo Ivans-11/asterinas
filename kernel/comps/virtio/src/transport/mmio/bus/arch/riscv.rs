@@ -23,6 +23,11 @@ pub(super) fn probe_for_device() {
         let mmio_start = mmio_region.starting_address as usize;
         let mmio_end = mmio_start + mmio_region.size.unwrap();
 
+        if aster_util::axvisor::is_static_passthrough_mmio_range(mmio_start, mmio_end - mmio_start)
+        {
+            return;
+        }
+
         let interrupt_source_in_fdt = InterruptSourceInFdt {
             interrupt: node.interrupts().unwrap().next().unwrap() as u32,
             interrupt_parent: node
