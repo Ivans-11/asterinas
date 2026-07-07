@@ -848,6 +848,8 @@ static int main(void)
 #if defined(__x86_64__)
 	if (test_x86_vm_abi(vmfd) != 0)
 		return 1;
+	guest_memory[0x100] = 0xf4; /* hlt */
+	puts("kvm smoke: x86 guest hlt prepared before memslot\n");
 #endif
 
 	struct kvm_userspace_memory_region memory_region = {
@@ -949,7 +951,6 @@ static int main(void)
 		return 1;
 
 	struct kvm_run_header *run_header = (struct kvm_run_header *)run;
-	guest_memory[0x100] = 0xf4; /* hlt */
 	run_header->exit_reason = 0xffffffff;
 	if (expect_ioctl(vcpufd, KVM_RUN, 0, 0, "KVM_RUN") != 0)
 		return 1;
