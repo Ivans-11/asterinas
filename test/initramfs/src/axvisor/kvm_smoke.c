@@ -797,6 +797,53 @@ static int test_x86_regs(long vcpufd)
 
 	return 0;
 }
+
+static int test_x86_hlt_exit_without_irqchip(long fd)
+{
+	long vmfd = sys_ioctl(fd, KVM_CREATE_VM, 0);
+	if (vmfd < 0) {
+		puts("KVM_CREATE_VM for x86 HLT failed\n");
+		return 1;
+	}
+
+	guest_memory[0x100] = 0xf4; /* hlt */
+	struct kvm_userspace_memory_region memory_region = {
+		.slot = 0,
+		.flags = 0,
+		.guest_phys_addr = 0,
+		.memory_size = sizeof(guest_memory),
+		.userspace_addr = (unsigned long long)guest_memory,
+	};
+	if (expect_ioctl(vmfd, KVM_SET_USER_MEMORY_REGION, (long)&memory_region, 0,
+			 "x86 HLT KVM_SET_USER_MEMORY_REGION") != 0)
+		return 1;
+
+	long vcpufd = sys_ioctl(vmfd, KVM_CREATE_VCPU, 0);
+	if (vcpufd < 0) {
+		puts("KVM_CREATE_VCPU for x86 HLT failed\n");
+		return 1;
+	}
+	char *run = (char *)sys_mmap(0, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, vcpufd, 0);
+	if ((long)run < 0) {
+		puts("mmap x86 HLT vcpu run page failed\n");
+		return 1;
+	}
+	if (test_x86_regs(vcpufd) != 0)
+		return 1;
+
+	struct kvm_run_header *run_header = (struct kvm_run_header *)run;
+	run_header->exit_reason = 0xffffffff;
+	if (expect_ioctl(vcpufd, KVM_RUN, 0, 0, "x86 no-irqchip KVM_RUN HLT") != 0)
+		return 1;
+	if (run_header->exit_reason != KVM_EXIT_HLT) {
+		puts("x86 no-irqchip KVM_RUN unexpected exit_reason\n");
+		return 1;
+	}
+
+	sys_close(vcpufd);
+	sys_close(vmfd);
+	return 0;
+}
 #endif
 
 static int main(void)
@@ -836,6 +883,10 @@ static int main(void)
 	if (expect_ioctl(fd, KVM_GET_VCPU_MMAP_SIZE, 0, 0x1000, "KVM_GET_VCPU_MMAP_SIZE") !=
 	    0)
 		return 1;
+#if defined(__x86_64__)
+	if (test_x86_hlt_exit_without_irqchip(fd) != 0)
+		return 1;
+#endif
 
 	long vmfd = sys_ioctl(fd, KVM_CREATE_VM, 0);
 	if (vmfd < 0) {
@@ -848,8 +899,6 @@ static int main(void)
 #if defined(__x86_64__)
 	if (test_x86_vm_abi(vmfd) != 0)
 		return 1;
-	guest_memory[0x100] = 0xf4; /* hlt */
-	puts("kvm smoke: x86 guest hlt prepared before memslot\n");
 #endif
 
 	struct kvm_userspace_memory_region memory_region = {
@@ -949,15 +998,6 @@ static int main(void)
 		return 1;
 	if (test_x86_regs(vcpufd) != 0)
 		return 1;
-
-	struct kvm_run_header *run_header = (struct kvm_run_header *)run;
-	run_header->exit_reason = 0xffffffff;
-	if (expect_ioctl(vcpufd, KVM_RUN, 0, 0, "KVM_RUN") != 0)
-		return 1;
-	if (run_header->exit_reason != KVM_EXIT_HLT) {
-		puts("KVM_RUN unexpected exit_reason\n");
-		return 1;
-	}
 #endif
 	sys_close(vcpufd);
 
