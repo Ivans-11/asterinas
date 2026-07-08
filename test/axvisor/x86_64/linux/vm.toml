@@ -4,8 +4,8 @@
 id = 1
 name = "linux-x86_64-qemu"
 vm_type = 1
-cpu_num = 4
-phys_cpu_sets = [1, 2, 1, 2]
+cpu_num = 2
+phys_cpu_sets = [1, 1]
 
 #
 # Vm kernel configs
