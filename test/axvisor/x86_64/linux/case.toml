@@ -10,7 +10,7 @@ fail_regex = [
   "(?i)permission denied",
 ]
 shell_prompt = "~ # "
-shell_init_cmd = "/bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); test \"$n\" -ge 2 && echo 'guest linux test pass!'"
+shell_init_cmd = "/bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); test \"$n\" -ge 4 && echo 'guest linux test pass!'"
 extra_qemu_args = [
   "-smp",
   "2",
