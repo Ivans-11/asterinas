@@ -1,9 +1,31 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use axvisor_api::time;
+use ostd::timer;
 
-pub(crate) fn init_percpu() {}
+const NO_DEADLINE_TICKS: u64 = u64::MAX;
+const NANOS_PER_SEC: u128 = 1_000_000_000;
 
-pub(crate) fn set_oneshot_timer(_deadline: time::TimeValue) {
-    // Asterinas does not yet expose host timer reprogramming to components.
+#[ax_percpu::def_percpu]
+static TIMER_DEADLINE_TICKS: u64 = NO_DEADLINE_TICKS;
+
+pub(crate) fn init_percpu() {
+    timer::register_callback_on_cpu(|| {
+        let deadline = TIMER_DEADLINE_TICKS.read_current();
+        if deadline == NO_DEADLINE_TICKS || ostd::arch::read_tsc() < deadline {
+            return;
+        }
+
+        TIMER_DEADLINE_TICKS.write_current(NO_DEADLINE_TICKS);
+        axvisor_core::vmm::timer::check_events();
+    });
+}
+
+pub(crate) fn set_oneshot_timer(deadline: time::TimeValue) {
+    TIMER_DEADLINE_TICKS.write_current(nanos_to_ticks(deadline.as_nanos() as u64));
+}
+
+fn nanos_to_ticks(nanos: u64) -> u64 {
+    let freq = ostd::arch::tsc_freq() as u128;
+    (((nanos as u128) * freq) / NANOS_PER_SEC).min(u64::MAX as u128) as u64
 }

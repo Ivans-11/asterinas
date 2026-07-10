@@ -336,7 +336,7 @@ impl SchedClassRq for FairClassRq {
                     return false;
                 }
 
-                matches!(flags, UpdateFlags::Wait)
+                matches!(flags, UpdateFlags::Wait | UpdateFlags::Yield)
                     || rt.period_delta > self.time_slice(weight)
                     || vruntime > self.min_vruntime + self.vtime_slice()
             }
