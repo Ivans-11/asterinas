@@ -51,19 +51,46 @@ let
     uringSupport = false;
   };
   qemuKvm = qemuKvmBase.overrideAttrs (old: {
-    buildInputs = old.buildInputs ++ lib.optionals (targetArch == "riscv64") [ dtc ];
+    buildInputs = old.buildInputs ++ [ dtc ];
     configureFlags = old.configureFlags ++ [
       "--disable-curl"
       "--disable-gnutls"
       "--disable-linux-aio"
       "--disable-linux-io-uring"
-    ] ++ lib.optionals (targetArch == "x86_64") [ "--disable-fdt" ];
+    ];
   });
   qemuTestFile = {
     package = qemuKvm;
     source = "${qemuKvm}/bin/qemu-system-${qemuSystemArch}";
     target = "qemu-system-${qemuSystemArch}";
   };
+  qemuX86FirmwareNames =
+    [
+      "bios-256k.bin"
+      "bios-microvm.bin"
+      "linuxboot_dma.bin"
+      "linuxboot.bin"
+      "kvmvapic.bin"
+    ];
+  qemuX86Firmware = stdenvNoCC.mkDerivation {
+    pname = "qemu-x86-test-firmware";
+    inherit (qemuKvm) version;
+    src = qemuKvm.src;
+    dontConfigure = true;
+    dontBuild = true;
+    installPhase = ''
+      mkdir -p $out
+      for firmware in ${lib.concatStringsSep " " qemuX86FirmwareNames}; do
+        cp pc-bios/$firmware $out/$firmware
+      done
+    '';
+  };
+  qemuTestFiles = [ qemuTestFile ] ++ lib.optionals (targetArch == "x86_64")
+    (map (firmware: {
+      package = qemuX86Firmware;
+      source = "${qemuX86Firmware}/${firmware}";
+      target = firmware;
+    }) qemuX86FirmwareNames);
   commonTestFiles = lib.optionals (hasTest "kvm_smoke") [
     {
       package = kvmSmoke;
@@ -72,9 +99,8 @@ let
     }
   ];
   archTestFiles = {
-    x86_64 = lib.optionals (lib.elem "qemu" testFiles) [
-      qemuTestFile
-    ] ++ lib.optionals hasFirecrackerX86_64 [
+    x86_64 = lib.optionals (lib.elem "qemu" testFiles) qemuTestFiles
+      ++ lib.optionals hasFirecrackerX86_64 [
       {
         package = firecrackerX86_64;
         source = "${firecrackerX86_64}/bin/firecracker";
@@ -86,9 +112,8 @@ let
         target = "firecracker-x86_64.json";
       }
     ];
-    riscv64 = lib.optionals (hasTest "qemu") [
-      qemuTestFile
-    ] ++ lib.optionals (hasTest "lkvm") [
+    riscv64 = lib.optionals (hasTest "qemu") qemuTestFiles
+      ++ lib.optionals (hasTest "lkvm") [
       {
         package = lkvm;
         source = "${lkvm}/bin/lkvm";

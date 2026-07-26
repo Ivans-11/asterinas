@@ -14,6 +14,7 @@ fail_regex = [
   "(?i)failed to initialize kvm",
   "(?i)kvm acceleration not available",
   "(?i)kvm.*ioctl.*failed",
+  "(?i)vm_set_irq:",
 ]
 extra_qemu_args = [
   "-drive",
@@ -24,7 +25,7 @@ extra_qemu_args = [
 
 [[interactions]]
 expect = "~ # "
-send = "export AXVISOR_OUTER=1; umount /ext2 2>/dev/null; (mount -t ext2 /dev/vda /ext2 || { echo QEMU_PAYLOAD_MOUNT_FAILED; ls /dev; false; }) && { /test/qemu-system-x86_64 -accel kvm -machine q35,pic=off,pit=off -cpu host -smp 2 -m 256M -nodefaults -no-reboot -nographic -monitor none -serial stdio -kernel /ext2/qemu-x86_64 -initrd /ext2/initramfs.cpio.gz -append 'console=ttyS0 reboot=k panic=1 init=/init root=/dev/vda rw' -drive file=/ext2/rootfs.img,format=raw,if=none,id=rootfs -device virtio-blk-pci,drive=rootfs; status=$?; test \"$status\" -eq 0 || echo \"QEMU_LAUNCH_FAILED: $status\"; }"
+send = "export AXVISOR_OUTER=1; umount /ext2 2>/dev/null; (mount -t ext2 /dev/vda /ext2 || { echo QEMU_PAYLOAD_MOUNT_FAILED; ls /dev; false; }) && { /test/qemu-system-x86_64 -L /test -accel kvm -machine microvm,rtc=on,kernel-irqchip=on -cpu host,-mce,-mca -smp 2 -m 128M -nodefaults -no-reboot -nographic -monitor none -serial stdio -kernel /ext2/qemu-x86_64 -initrd /ext2/initramfs.cpio.gz -append 'console=ttyS0 reboot=k panic=1 init=/init root=/dev/vda rw' -drive file=/ext2/rootfs.img,format=raw,if=none,id=rootfs -device virtio-blk-device,drive=rootfs; status=$?; test \"$status\" -eq 0 || echo \"QEMU_LAUNCH_FAILED: $status\"; }"
 
 [[interactions]]
 expect = "~ # "
