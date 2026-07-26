@@ -1,7 +1,18 @@
-{ stdenvNoCC, lib, callPackage, targetArch ? "x86_64"
+{ stdenvNoCC, lib, callPackage, qemu, dtc, targetArch ? "x86_64"
 , firecrackerX86_64Url ? "", firecrackerX86_64Sha256 ? ""
-, firecrackerRiscv64Url ? "", firecrackerRiscv64Sha256 ? "", }:
+, firecrackerRiscv64Url ? "", firecrackerRiscv64Sha256 ? ""
+, testFiles ? [ ], }:
 let
+  hasTest = name: lib.elem name testFiles;
+  supportedTestFiles = if targetArch == "x86_64" then
+    [ "kvm_smoke" "firecracker" "qemu" ]
+  else if targetArch == "riscv64" then
+    [ "kvm_smoke" "firecracker" "lkvm" "qemu" ]
+  else
+    [ ];
+  unknownTestFiles = lib.filter (name: !(lib.elem name supportedTestFiles)) testFiles;
+  _validated = lib.assertMsg (unknownTestFiles == [ ])
+    "unknown Axvisor test file(s): ${lib.concatStringsSep ", " unknownTestFiles}";
   kvmSmoke = callPackage ./kvm-smoke.nix { };
   lkvm = callPackage ./lkvm.nix { };
   firecrackerX86Config = builtins.path {
@@ -11,9 +22,9 @@ let
     path = ./../../src/axvisor/firecracker_riscv.json;
   };
   hasFirecrackerX86_64 =
-    firecrackerX86_64Url != "" && firecrackerX86_64Sha256 != "";
+    hasTest "firecracker" && firecrackerX86_64Url != "" && firecrackerX86_64Sha256 != "";
   hasFirecrackerRiscv64 =
-    firecrackerRiscv64Url != "" && firecrackerRiscv64Sha256 != "";
+    hasTest "firecracker" && firecrackerRiscv64Url != "" && firecrackerRiscv64Sha256 != "";
   firecrackerX86_64 = callPackage ./firecracker.nix {
     pname = "firecracker-x86_64";
     firecrackerUrl = firecrackerX86_64Url;
@@ -26,7 +37,34 @@ let
     firecrackerUrl = firecrackerRiscv64Url;
     firecrackerSha256 = firecrackerRiscv64Sha256;
   };
-  commonTestFiles = [
+  qemuSystemArch = if targetArch == "x86_64" then
+    "x86_64"
+  else if targetArch == "riscv64" then
+    "riscv64"
+  else
+    throw "QEMU KVM test is not supported for ${targetArch}";
+  qemuKvmBase = qemu.override {
+    hostCpuOnly = true;
+    hostCpuTargets = [ "${qemuSystemArch}-softmmu" ];
+    minimal = true;
+    pluginsSupport = false;
+    uringSupport = false;
+  };
+  qemuKvm = qemuKvmBase.overrideAttrs (old: {
+    buildInputs = old.buildInputs ++ lib.optionals (targetArch == "riscv64") [ dtc ];
+    configureFlags = old.configureFlags ++ [
+      "--disable-curl"
+      "--disable-gnutls"
+      "--disable-linux-aio"
+      "--disable-linux-io-uring"
+    ] ++ lib.optionals (targetArch == "x86_64") [ "--disable-fdt" ];
+  });
+  qemuTestFile = {
+    package = qemuKvm;
+    source = "${qemuKvm}/bin/qemu-system-${qemuSystemArch}";
+    target = "qemu-system-${qemuSystemArch}";
+  };
+  commonTestFiles = lib.optionals (hasTest "kvm_smoke") [
     {
       package = kvmSmoke;
       source = "${kvmSmoke}/bin/kvm_smoke";
@@ -34,7 +72,9 @@ let
     }
   ];
   archTestFiles = {
-    x86_64 = lib.optionals hasFirecrackerX86_64 [
+    x86_64 = lib.optionals (lib.elem "qemu" testFiles) [
+      qemuTestFile
+    ] ++ lib.optionals hasFirecrackerX86_64 [
       {
         package = firecrackerX86_64;
         source = "${firecrackerX86_64}/bin/firecracker";
@@ -46,7 +86,9 @@ let
         target = "firecracker-x86_64.json";
       }
     ];
-    riscv64 = [
+    riscv64 = lib.optionals (hasTest "qemu") [
+      qemuTestFile
+    ] ++ lib.optionals (hasTest "lkvm") [
       {
         package = lkvm;
         source = "${lkvm}/bin/lkvm";
@@ -69,7 +111,7 @@ let
     commonTestFiles ++ lib.attrByPath [ targetArch ] [ ] archTestFiles;
   copyTestFiles = lib.concatMapStringsSep "\n" (file:
     "cp ${file.source} $out/test/${file.target}") selectedTestFiles;
-in stdenvNoCC.mkDerivation {
+in assert _validated; stdenvNoCC.mkDerivation {
   pname = "axvisor-initramfs-tests";
   version = "0.1.0";
   dontUnpack = true;

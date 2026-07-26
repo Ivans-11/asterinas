@@ -1,0 +1,31 @@
+arch = "riscv64"
+case = "qemu-linux"
+image = "qemu_riscv64_linux"
+payload_files = ["qemu-riscv64", "initramfs.cpio.gz", "rootfs.img"]
+test_files = ["qemu"]
+timeout_secs = 600
+success_regex = ["(?m)^qemu kvm guest test pass!\\s*$"]
+fail_regex = [
+  "(?i)uncaught panic",
+  "(?i)panicked at",
+  "(?i)kernel panic",
+  "(?m)^QEMU_PAYLOAD_MOUNT_FAILED\\r?$",
+  "(?m)^QEMU_LAUNCH_FAILED:[[:space:]]*[1-9][0-9]*\\r?$",
+  "(?i)failed to initialize kvm",
+  "(?i)kvm acceleration not available",
+  "(?i)kvm.*ioctl.*failed",
+]
+extra_qemu_args = [
+  "-drive",
+  "if=none,format=raw,id=qemu_linux_payload,file={control_payload_image}",
+  "-device",
+  "virtio-blk-device,drive=qemu_linux_payload",
+]
+
+[[interactions]]
+expect = "~ # "
+send = "export AXVISOR_OUTER=1; umount /ext2 2>/dev/null; (mount -t ext2 /dev/vda /ext2 || { echo QEMU_PAYLOAD_MOUNT_FAILED; ls /dev; false; }) && { /test/qemu-system-riscv64 -accel kvm -machine virt,aia=none -cpu host -smp 2 -m 256M -nodefaults -no-reboot -nographic -monitor none -serial stdio -kernel /ext2/qemu-riscv64 -initrd /ext2/initramfs.cpio.gz -append 'earlycon=sbi console=ttyS0,115200 reboot=k panic=1 init=/init root=/dev/vda rw' -drive file=/ext2/rootfs.img,format=raw,if=none,id=rootfs -device virtio-blk-device,drive=rootfs; status=$?; test \"$status\" -eq 0 || echo \"QEMU_LAUNCH_FAILED: $status\"; }"
+
+[[interactions]]
+expect = "~ # "
+send = "test -z \"${AXVISOR_OUTER:-}\" && /bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); test -z \"${AXVISOR_OUTER:-}\" && test \"$n\" -ge 2 && echo 'qemu kvm guest test pass!'"

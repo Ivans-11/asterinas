@@ -8,7 +8,8 @@
   "sha256-vQTiaVLU4VgIV3jGIwoLOD0mGcMZGC4n6qnWGiEuktY="
 , firecrackerRiscv64Url ?
   "https://github.com/Ivans-11/firecracker/releases/download/firecracker-riscv64-v0.1.1/firecracker-riscv64gc-unknown-linux-musl"
-, firecrackerRiscv64Sha256 ? "sha256-j9/JbST84tbiCCgyTZkl5DUgPawEo07SV5V9jX6Qeao=", }:
+, firecrackerRiscv64Sha256 ? "sha256-j9/JbST84tbiCCgyTZkl5DUgPawEo07SV5V9jX6Qeao="
+, axvisorTestFiles ? "", }:
 let
   crossSystem.config = if target == "x86_64" then
     "x86_64-unknown-linux-gnu"
@@ -28,6 +29,7 @@ let
     overlays = [ ];
     inherit crossSystem;
   };
+  lib = pkgs.lib;
 in rec {
   # Packages needed by initramfs
   busybox = pkgs.busybox;
@@ -41,6 +43,7 @@ in rec {
     pkgs.callPackage ./regression { testPlatform = regressionTestPlatform; };
   axvisorTests = pkgs.callPackage ./axvisor {
     targetArch = target;
+    testFiles = lib.filter (file: file != "") (lib.splitString "," axvisorTestFiles);
     inherit firecrackerX86_64Url firecrackerX86_64Sha256
       firecrackerRiscv64Url firecrackerRiscv64Sha256;
   };

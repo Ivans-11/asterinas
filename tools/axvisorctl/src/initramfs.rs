@@ -11,7 +11,11 @@ use anyhow::{Context, Result, bail};
 
 use crate::case::Arch;
 
-pub fn prepare_initramfs(workspace_root: &Path, arch: Arch) -> Result<PathBuf> {
+pub fn prepare_initramfs(
+    workspace_root: &Path,
+    arch: Arch,
+    test_files: &[String],
+) -> Result<PathBuf> {
     let test_dir = workspace_root.join("test/initramfs");
     let build_dir = test_dir.join("build");
     let initramfs_link = build_dir.join(arch.as_str()).join("initramfs.cpio.gz");
@@ -20,6 +24,7 @@ pub fn prepare_initramfs(workspace_root: &Path, arch: Arch) -> Result<PathBuf> {
     build
         .current_dir(&test_dir)
         .arg(format!("TARGET_ARCH={}", arch.as_str()))
+        .arg(format!("AXVISOR_TEST_FILES={}", test_files.join(",")))
         .arg("BENCHMARK=none")
         .arg("build")
         .stdin(Stdio::null());

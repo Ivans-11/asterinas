@@ -97,7 +97,7 @@
 	(KVM_REG_RISCV | KVM_REG_SIZE_U64 | KVM_REG_RISCV_CSR | KVM_REG_RISCV_CSR_GENERAL | (reg))
 #define KVM_REG_RISCV_TIMER_REG(reg)                                                                   \
 	(KVM_REG_RISCV | KVM_REG_SIZE_U64 | KVM_REG_RISCV_TIMER | (reg))
-#define KVM_RISCV_BASE_ISA 0x1105ULL
+#define KVM_RISCV_BASE_ISA 0x112dULL
 #define KVM_RISCV_TIMER_FREQUENCY 10000000ULL
 #define KVM_RISCV_TIMER_STATE_OFF 0
 #define KVM_RISCV_TIMER_STATE_ON 1
@@ -112,6 +112,7 @@
 
 #define AT_FDCWD -100
 #define MAP_SHARED 0x01
+#define E2BIG 7
 #define ENOTTY 25
 #define O_RDWR 02
 #define O_CLOEXEC 02000000
@@ -295,7 +296,7 @@ struct kvm_reg_list_header {
 
 struct kvm_reg_list {
 	unsigned long long n;
-	unsigned long long reg[64];
+	unsigned long long reg[256];
 };
 
 static unsigned char guest_memory[4096] __attribute__((aligned(4096)));
@@ -541,17 +542,21 @@ static int expect_one_reg(long vcpufd, unsigned long long id, unsigned long long
 
 static int expect_reg_list_contains(long vcpufd, unsigned long long first, unsigned long long second)
 {
+	struct kvm_reg_list_header header = { 0 };
 	struct kvm_reg_list reg_list;
 	int found_first = 0;
 	int found_second = 0;
 
-	reg_list.n = 64;
-	if (expect_ioctl(vcpufd, KVM_GET_REG_LIST, (long)&reg_list, 0, "KVM_GET_REG_LIST") != 0)
+	if (expect_ioctl_errno(vcpufd, KVM_GET_REG_LIST, (long)&header, E2BIG,
+			       "KVM_GET_REG_LIST size") != 0)
 		return 1;
-	if (reg_list.n > 64) {
+	if (header.n > 256) {
 		puts("KVM_GET_REG_LIST returned too many regs\n");
 		return 1;
 	}
+	reg_list.n = header.n;
+	if (expect_ioctl(vcpufd, KVM_GET_REG_LIST, (long)&reg_list, 0, "KVM_GET_REG_LIST") != 0)
+		return 1;
 	for (unsigned long long i = 0; i < reg_list.n; i++) {
 		if (reg_list.reg[i] == first)
 			found_first = 1;

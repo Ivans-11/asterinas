@@ -317,7 +317,7 @@ fn run_command(workspace: &Workspace, args: RunArgs) -> Result<()> {
     fs::create_dir_all(&workspace.target_dir)
         .with_context(|| format!("failed to create {}", workspace.target_dir.display()))?;
     let arch = resolve_run_arch(workspace, &args)?;
-    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch)?;
+    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch, &[])?;
     let staged_case = match args.guest.as_deref() {
         Some(guest) => Some(stage_case(workspace, args.arch, guest)?),
         None => None,
@@ -396,7 +396,7 @@ fn test_command(workspace: &Workspace, args: TestArgs) -> Result<()> {
         rendered_qemu_args: staged_case.rendered_qemu_args.clone(),
     };
     let initramfs =
-        initramfs::prepare_initramfs(&workspace.root, staged_case.loaded.manifest.arch)?;
+        initramfs::prepare_initramfs(&workspace.root, staged_case.loaded.manifest.arch, &[])?;
     let mut build = build_osdk_command(
         workspace,
         staged_case.loaded.manifest.arch,
@@ -437,7 +437,7 @@ fn test_off_mode(workspace: &Workspace, args: TestArgs) -> Result<()> {
     }
 
     let arch = args.arch.unwrap_or_default();
-    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch)?;
+    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch, &[])?;
     let host_launch = case::resolve_host(&workspace.root, arch)?
         .map(|host| stage_host_launch(arch, host))
         .transpose()?

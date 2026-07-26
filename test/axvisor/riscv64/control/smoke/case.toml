@@ -1,5 +1,6 @@
 arch = "riscv64"
 case = "smoke"
+test_files = ["kvm_smoke"]
 timeout_secs = 120
 success_regex = ["(?m)^kvm smoke pass\\s*$"]
 fail_regex = [

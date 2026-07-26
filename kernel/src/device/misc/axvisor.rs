@@ -549,6 +549,7 @@ fn endpoint_ops() -> Result<ControlOps> {
 fn to_ax_error(err: Error) -> AxError {
     match err.error() {
         Errno::EEXIST => AxErrorKind::AlreadyExists.into(),
+        Errno::E2BIG => AxErrorKind::ArgumentListTooLong.into(),
         Errno::EFAULT => AxErrorKind::BadAddress.into(),
         Errno::EINVAL => AxErrorKind::InvalidInput.into(),
         Errno::EAGAIN => AxErrorKind::WouldBlock.into(),
@@ -561,6 +562,7 @@ fn from_ax_error(err: AxError) -> Error {
     let kind = AxErrorKind::try_from(err).unwrap_or(AxErrorKind::Io);
     let errno = match kind {
         AxErrorKind::AlreadyExists => Errno::EEXIST,
+        AxErrorKind::ArgumentListTooLong => Errno::E2BIG,
         AxErrorKind::BadAddress => Errno::EFAULT,
         AxErrorKind::InvalidInput => Errno::EINVAL,
         AxErrorKind::NotFound => Errno::ENOENT,

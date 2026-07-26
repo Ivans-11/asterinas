@@ -42,6 +42,8 @@ pub struct CaseManifest {
     pub extra_features: Vec<String>,
     #[serde(default)]
     pub extra_qemu_args: Vec<String>,
+    #[serde(default)]
+    pub test_files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -93,7 +95,11 @@ pub fn test(workspace: &Workspace, args: TestArgs) -> Result<()> {
         arch,
         case_name,
     )?;
-    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch)?;
+    let initramfs = initramfs::prepare_initramfs(
+        &workspace.root,
+        arch,
+        &staged_case.loaded.manifest.test_files,
+    )?;
     let host_launch = HostLaunchConfig {
         scheme: staged_case.scheme.clone(),
         features: staged_case.features.clone(),

@@ -2,6 +2,7 @@ arch = "x86_64"
 case = "firecracker-linux"
 image = "qemu_x86_64_linux"
 payload_files = ["vmlinux", "initramfs.cpio.gz", "rootfs.img"]
+test_files = ["firecracker"]
 payload_extract_bzimage_elf = [
   { source = "qemu-x86_64", output = "vmlinux" },
 ]

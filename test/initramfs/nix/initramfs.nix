@@ -39,7 +39,9 @@ in stdenvNoCC.mkDerivation {
     ''}
 
     cp ${boot_hello} $out/test/boot_hello.sh
-    cp -r ${axvisorTests}/test/* $out/test/
+    ${lib.optionalString (axvisorTests.packages != [ ]) ''
+      cp -r ${axvisorTests}/test/* $out/test/
+    ''}
     cp ${init} $out/init
 
     cp -r ${etc}/* $out/etc/
