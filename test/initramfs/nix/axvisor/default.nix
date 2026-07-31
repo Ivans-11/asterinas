@@ -5,15 +5,16 @@
 let
   hasTest = name: lib.elem name testFiles;
   supportedTestFiles = if targetArch == "x86_64" then
-    [ "kvm_smoke" "firecracker" "qemu" ]
+    [ "kvm_smoke" "kvm_sandbox" "firecracker" "qemu" ]
   else if targetArch == "riscv64" then
-    [ "kvm_smoke" "firecracker" "lkvm" "qemu" ]
+    [ "kvm_smoke" "kvm_sandbox" "firecracker" "lkvm" "qemu" ]
   else
     [ ];
   unknownTestFiles = lib.filter (name: !(lib.elem name supportedTestFiles)) testFiles;
   _validated = lib.assertMsg (unknownTestFiles == [ ])
     "unknown Axvisor test file(s): ${lib.concatStringsSep ", " unknownTestFiles}";
   kvmSmoke = callPackage ./kvm-smoke.nix { };
+  kvmSandbox = callPackage ./kvm-sandbox.nix { };
   lkvm = callPackage ./lkvm.nix { };
   firecrackerX86Config = builtins.path {
     path = ./../../src/axvisor/firecracker_x86_64.json;
@@ -99,7 +100,13 @@ let
     }
   ];
   archTestFiles = {
-    x86_64 = lib.optionals (lib.elem "qemu" testFiles) qemuTestFiles
+    x86_64 = lib.optionals (hasTest "kvm_sandbox") [
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox";
+        target = "kvm_sandbox";
+      }
+    ] ++ lib.optionals (lib.elem "qemu" testFiles) qemuTestFiles
       ++ lib.optionals hasFirecrackerX86_64 [
       {
         package = firecrackerX86_64;
@@ -112,7 +119,13 @@ let
         target = "firecracker-x86_64.json";
       }
     ];
-    riscv64 = lib.optionals (hasTest "qemu") qemuTestFiles
+    riscv64 = lib.optionals (hasTest "kvm_sandbox") [
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox";
+        target = "kvm_sandbox";
+      }
+    ] ++ lib.optionals (hasTest "qemu") qemuTestFiles
       ++ lib.optionals (hasTest "lkvm") [
       {
         package = lkvm;

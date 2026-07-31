@@ -1,0 +1,12 @@
+arch = "riscv64"
+case = "sandbox"
+test_files = ["kvm_sandbox"]
+timeout_secs = 120
+success_regex = ["(?m)^kvm sandbox pass\\s*$"]
+fail_regex = [
+  "(?i)panic",
+  "(?i)KVM_.*failed",
+  "(?i)sandbox.*failed",
+]
+shell_prompt = "~ # "
+shell_init_cmd = "/test/kvm_sandbox"
