@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
 #define _GNU_SOURCE
-#include <sys/mman.h>
+#include <stdio.h>
 #include <sys/fcntl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #include "../../common/test.h"
@@ -29,6 +30,17 @@ FN_SETUP(init)
 	fd = CHECK(open("/proc/self/exe", O_RDONLY));
 }
 END_SETUP()
+
+FN_TEST(proc_mmap_min_addr)
+{
+	unsigned long mmap_min_addr;
+	FILE *file = CHECK(fopen("/proc/sys/vm/mmap_min_addr", "r"));
+
+	TEST_RES(fscanf(file, "%lu", &mmap_min_addr), _ret == 1);
+	TEST_RES(mmap_min_addr, _ret == (unsigned long)MMAP_MIN_ADDR);
+	TEST_SUCC(fclose(file));
+}
+END_TEST()
 
 FN_TEST(overflow_len)
 {

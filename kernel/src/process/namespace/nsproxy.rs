@@ -197,9 +197,17 @@ pub fn check_unsupported_ns_flags(flags: CloneFlags) -> Result<()> {
         .union(CloneFlags::CLONE_NEWIPC)
         .union(CloneFlags::CLONE_NEWNS)
         .union(CloneFlags::CLONE_NEWUTS);
+    // Creating a PID or network namespace currently retains the parent's namespace. This
+    // compatibility fallback lets applications that use these namespaces only for process
+    // isolation continue to run; `CloneFlags::check_unsupported_flags` warns about the missing
+    // isolation semantics.
+    const COMPATIBILITY_FLAGS: CloneFlags =
+        CloneFlags::CLONE_NEWPID.union(CloneFlags::CLONE_NEWNET);
 
-    let unsupported_flags =
-        (flags & CloneFlags::CLONE_NS_FLAGS) - SUPPORTED_FLAGS - CloneFlags::CLONE_NEWUSER;
+    let unsupported_flags = (flags & CloneFlags::CLONE_NS_FLAGS)
+        - SUPPORTED_FLAGS
+        - COMPATIBILITY_FLAGS
+        - CloneFlags::CLONE_NEWUSER;
     if unsupported_flags.is_empty() {
         return Ok(());
     }

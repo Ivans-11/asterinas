@@ -9,6 +9,9 @@
 , firecrackerRiscv64Url ?
   "https://github.com/Ivans-11/firecracker/releases/download/firecracker-riscv64-v0.1.1/firecracker-riscv64gc-unknown-linux-musl"
 , firecrackerRiscv64Sha256 ? "sha256-j9/JbST84tbiCCgyTZkl5DUgPawEo07SV5V9jX6Qeao="
+, runscUrl ?
+  "https://storage.googleapis.com/gvisor/releases/release/20260727.0/x86_64/runsc"
+, runscSha256 ? "sha256-bsRoCKIslLfqaN2VIegxtExp4NMmeizIYvmmrikM7pE="
 , axvisorTestFiles ? "", }:
 let
   crossSystem.config = if target == "x86_64" then
@@ -46,6 +49,7 @@ in rec {
     testFiles = lib.filter (file: file != "") (lib.splitString "," axvisorTestFiles);
     inherit firecrackerX86_64Url firecrackerX86_64Sha256
       firecrackerRiscv64Url firecrackerRiscv64Sha256;
+    inherit runscUrl runscSha256;
   };
 
   initramfs = pkgs.callPackage ./initramfs.nix {

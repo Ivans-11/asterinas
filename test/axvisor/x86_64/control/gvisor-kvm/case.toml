@@ -1,0 +1,14 @@
+arch = "x86_64"
+case = "gvisor-kvm"
+test_files = ["gvisor"]
+timeout_secs = 600
+success_regex = ["(?m)^gvisor kvm test pass!\\s*$"]
+fail_regex = [
+  "(?i)uncaught panic",
+  "(?i)panicked at",
+  "(?i)runsc.*failed",
+  "(?i)error initializing kvm",
+  "(?i)creating vm:",
+]
+shell_prompt = "~ # "
+shell_init_cmd = "mkdir -p /tmp/runsc-root; /test/runsc --root=/tmp/runsc-root --platform=kvm --network=none --ignore-cgroups --directfs=false --TESTONLY-unsafe-nonroot --log=/dev/console --panic-log=/dev/console do --force-overlay=false /bin/busybox sh -c \"echo 'gvisor kvm test pass!'\""

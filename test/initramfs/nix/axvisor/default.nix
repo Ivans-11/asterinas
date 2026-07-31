@@ -1,11 +1,12 @@
 { stdenvNoCC, lib, callPackage, qemu, dtc, targetArch ? "x86_64"
 , firecrackerX86_64Url ? "", firecrackerX86_64Sha256 ? ""
 , firecrackerRiscv64Url ? "", firecrackerRiscv64Sha256 ? ""
+, runscUrl ? "", runscSha256 ? ""
 , testFiles ? [ ], }:
 let
   hasTest = name: lib.elem name testFiles;
   supportedTestFiles = if targetArch == "x86_64" then
-    [ "kvm_smoke" "kvm_sandbox" "firecracker" "qemu" ]
+    [ "kvm_smoke" "kvm_sandbox" "firecracker" "gvisor" "qemu" ]
   else if targetArch == "riscv64" then
     [ "kvm_smoke" "kvm_sandbox" "firecracker" "lkvm" "qemu" ]
   else
@@ -38,6 +39,8 @@ let
     firecrackerUrl = firecrackerRiscv64Url;
     firecrackerSha256 = firecrackerRiscv64Sha256;
   };
+  hasRunsc = hasTest "gvisor" && runscUrl != "" && runscSha256 != "";
+  runsc = callPackage ./runsc.nix { inherit runscUrl runscSha256; };
   qemuSystemArch = if targetArch == "x86_64" then
     "x86_64"
   else if targetArch == "riscv64" then
@@ -157,6 +160,13 @@ let
         target = "kvm_sandbox_data";
       }
     ] ++ lib.optionals (lib.elem "qemu" testFiles) qemuTestFiles
+      ++ lib.optionals hasRunsc [
+      {
+        package = runsc;
+        source = "${runsc}/bin/runsc";
+        target = "runsc";
+      }
+    ]
       ++ lib.optionals hasFirecrackerX86_64 [
       {
         package = firecrackerX86_64;

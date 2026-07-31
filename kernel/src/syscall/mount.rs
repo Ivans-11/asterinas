@@ -152,13 +152,21 @@ fn do_change_type(target_path: Path, flags: MountFlags, ctx: &Context) -> Result
         );
     }
 
-    if flags.contains(MountFlags::MS_PRIVATE) {
-        let recursive = flags.contains(MountFlags::MS_REC);
-        target_path.set_mount_propagation(MountPropType::Private, recursive, ctx)?;
-        Ok(())
+    let propagation_type = if flags.contains(MountFlags::MS_PRIVATE) {
+        MountPropType::Private
+    } else if flags.contains(MountFlags::MS_SLAVE) {
+        // All mounts are currently private because shared mount groups are not implemented. A
+        // private mount satisfies the caller's requirement that mount events do not propagate
+        // outward, but it does not provide propagation from a master mount to this mount.
+        warn!("MS_SLAVE is treated as MS_PRIVATE because shared mounts are not supported");
+        MountPropType::Private
     } else {
         return_errno_with_message!(Errno::EINVAL, "the mount propagation type is unsupported");
-    }
+    };
+
+    let recursive = flags.contains(MountFlags::MS_REC);
+    target_path.set_mount_propagation(propagation_type, recursive, ctx)?;
+    Ok(())
 }
 
 /// Moves a mount from src location to dst location.

@@ -16,6 +16,8 @@ FIRECRACKER_X86_64_URL ?= https://github.com/firecracker-microvm/firecracker/rel
 FIRECRACKER_X86_64_SHA256 ?= sha256-vQTiaVLU4VgIV3jGIwoLOD0mGcMZGC4n6qnWGiEuktY=
 FIRECRACKER_RISCV64_URL ?= https://github.com/Ivans-11/firecracker/releases/download/firecracker-riscv64-v0.1.1/firecracker-riscv64gc-unknown-linux-musl
 FIRECRACKER_RISCV64_SHA256 ?= sha256-j9/JbST84tbiCCgyTZkl5DUgPawEo07SV5V9jX6Qeao=
+RUNSC_URL ?= https://storage.googleapis.com/gvisor/releases/release/20260727.0/x86_64/runsc
+RUNSC_SHA256 ?= sha256-bsRoCKIslLfqaN2VIegxtExp4NMmeizIYvmmrikM7pE=
 AXVISOR_TEST_FILES ?=
 # Set Nix's cached tarballs to be live for a longer period of time (30 days) to avoid network traffics.
 # Nix's default value is rather small (1 hour or 3600 seconds).
@@ -88,6 +90,8 @@ $(INITRAMFS_IMAGE): $(INITRAMFS)
 		--argstr firecrackerX86_64Sha256 "$(FIRECRACKER_X86_64_SHA256)" \
 		--argstr firecrackerRiscv64Url "$(FIRECRACKER_RISCV64_URL)" \
 		--argstr firecrackerRiscv64Sha256 "$(FIRECRACKER_RISCV64_SHA256)" \
+		--argstr runscUrl "$(RUNSC_URL)" \
+		--argstr runscSha256 "$(RUNSC_SHA256)" \
 		--argstr axvisorTestFiles "$(AXVISOR_TEST_FILES)" \
 		--arg initramfsCompressed $(INITRAMFS_COMPRESSED) \
 		--arg smp $(SMP) \
@@ -110,6 +114,8 @@ $(INITRAMFS):
 		--argstr firecrackerX86_64Sha256 "$(FIRECRACKER_X86_64_SHA256)" \
 		--argstr firecrackerRiscv64Url "$(FIRECRACKER_RISCV64_URL)" \
 		--argstr firecrackerRiscv64Sha256 "$(FIRECRACKER_RISCV64_SHA256)" \
+		--argstr runscUrl "$(RUNSC_URL)" \
+		--argstr runscSha256 "$(RUNSC_SHA256)" \
 		--argstr axvisorTestFiles "$(AXVISOR_TEST_FILES)" \
 		--arg smp $(SMP) \
 		--out-link $@ \

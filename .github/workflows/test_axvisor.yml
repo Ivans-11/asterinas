@@ -51,6 +51,11 @@ jobs:
             guest: ""
             case: sandbox
             name: x86_64-control-sandbox
+          - arch: x86_64
+            mode: control
+            guest: ""
+            case: gvisor-kvm
+            name: x86_64-control-gvisor-kvm
           - arch: riscv64
             mode: static
             guest: arceos

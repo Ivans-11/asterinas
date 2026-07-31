@@ -275,6 +275,7 @@ impl CloneFlags {
             | CloneFlags::CLONE_CHILD_CLEARTID
             | CloneFlags::CLONE_VFORK
             | CloneFlags::CLONE_NEWCGROUP
+            | CloneFlags::CLONE_NEWIPC
             | CloneFlags::CLONE_NEWNS
             | CloneFlags::CLONE_NEWUTS
             | CloneFlags::CLONE_PARENT;
