@@ -106,6 +106,56 @@ let
         source = "${kvmSandbox}/bin/kvm_sandbox";
         target = "kvm_sandbox";
       }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_app";
+        target = "kvm_sandbox_app";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_app_alt";
+        target = "kvm_sandbox_app_alt";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_invalid_elf";
+        target = "kvm_sandbox_invalid_elf";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_monitor_attack";
+        target = "kvm_sandbox_monitor_attack";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_control_attack";
+        target = "kvm_sandbox_control_attack";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_spin";
+        target = "kvm_sandbox_spin";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_file_app";
+        target = "kvm_sandbox_file_app";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_c_app";
+        target = "kvm_sandbox_c_app";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_libc_app";
+        target = "kvm_sandbox_libc_app";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_data";
+        target = "kvm_sandbox_data";
+      }
     ] ++ lib.optionals (lib.elem "qemu" testFiles) qemuTestFiles
       ++ lib.optionals hasFirecrackerX86_64 [
       {
@@ -124,6 +174,56 @@ let
         package = kvmSandbox;
         source = "${kvmSandbox}/bin/kvm_sandbox";
         target = "kvm_sandbox";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_app";
+        target = "kvm_sandbox_app";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_app_alt";
+        target = "kvm_sandbox_app_alt";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_invalid_elf";
+        target = "kvm_sandbox_invalid_elf";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_monitor_attack";
+        target = "kvm_sandbox_monitor_attack";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_control_attack";
+        target = "kvm_sandbox_control_attack";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_spin";
+        target = "kvm_sandbox_spin";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_file_app";
+        target = "kvm_sandbox_file_app";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_c_app";
+        target = "kvm_sandbox_c_app";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_libc_app";
+        target = "kvm_sandbox_libc_app";
+      }
+      {
+        package = kvmSandbox;
+        source = "${kvmSandbox}/bin/kvm_sandbox_data";
+        target = "kvm_sandbox_data";
       }
     ] ++ lib.optionals (hasTest "qemu") qemuTestFiles
       ++ lib.optionals (hasTest "lkvm") [

@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
+#include "sandbox_abi.h"
+#include "runner.h"
+#include "elf_loader.h"
+#include "syscall_proxy.h"
+
 #define KVMIO 0xae
 #define IOC(type, nr) (((type) << 8) | (nr))
 #define IOC_WRITE 1UL
@@ -13,25 +18,33 @@
 #define IOW(type, nr, size)                                                                   \
 	((IOC_WRITE << IOC_DIRSHIFT) | ((size) << IOC_SIZESHIFT) | ((type) << IOC_TYPESHIFT) | \
 	 (nr))
+#define IOWR(type, nr, size)                                                                  \
+	(((IOC_READ | IOC_WRITE) << IOC_DIRSHIFT) | ((size) << IOC_SIZESHIFT) |                 \
+	 ((type) << IOC_TYPESHIFT) | (nr))
 
 #define KVM_GET_API_VERSION IOC(KVMIO, 0x00)
 #define KVM_CREATE_VM IOC(KVMIO, 0x01)
 #define KVM_GET_VCPU_MMAP_SIZE IOC(KVMIO, 0x04)
 #define KVM_CREATE_VCPU IOC(KVMIO, 0x41)
+#define KVM_GET_SUPPORTED_CPUID IOWR(KVMIO, 0x05, sizeof(struct kvm_cpuid2_header))
 #define KVM_SET_USER_MEMORY_REGION IOW(KVMIO, 0x46, sizeof(struct kvm_userspace_memory_region))
 #define KVM_RUN IOC(KVMIO, 0x80)
 #define KVM_SET_REGS IOW(KVMIO, 0x82, sizeof(struct kvm_regs))
 #define KVM_GET_SREGS IOR(KVMIO, 0x83, sizeof(struct kvm_sregs))
 #define KVM_SET_SREGS IOW(KVMIO, 0x84, sizeof(struct kvm_sregs))
 #define KVM_SET_MSRS IOW(KVMIO, 0x89, sizeof(struct kvm_msrs_header))
+#define KVM_SET_CPUID2 IOW(KVMIO, 0x90, sizeof(struct kvm_cpuid2_header))
 
 #define KVM_EXIT_IO 2
 #define KVM_EXIT_SHUTDOWN 8
+#define KVM_EXIT_FAIL_ENTRY 9
+#define KVM_EXIT_INTERNAL_ERROR 17
 #define KVM_EXIT_IO_OUT 1
 
 #define KVM_MSR_STAR 0xc0000081U
 #define KVM_MSR_LSTAR 0xc0000082U
 #define KVM_MSR_SYSCALL_MASK 0xc0000084U
+#define EM_X86_64 62
 
 #define AT_FDCWD -100
 #define MAP_PRIVATE 0x02
@@ -47,19 +60,21 @@
 #define SYS_IOCTL 16
 #define SYS_MMAP 9
 #define SYS_OPENAT 257
-#define SYS_EXIT 60
 
 #define PAGE_SIZE 0x1000UL
-#define GUEST_MEMORY_SIZE 0x20000UL
+#define GUEST_MEMORY_SIZE 0x200000UL
 #define PML4_GPA 0x1000UL
 #define PDPT_GPA 0x2000UL
 #define PD_GPA 0x3000UL
 #define PT_GPA 0x4000UL
 #define GDT_GPA 0x5000UL
+#define TSS_GPA 0x6000UL
+#define IDT_GPA 0x6800UL
+#define MONITOR_STACK_TOP_GPA 0x7800UL
 #define MONITOR_GPA 0x8000UL
-#define USER_STACK_TOP_GPA 0xc000UL
+#define APPLICATION_START_GPA 0x10000UL
+#define USER_STACK_TOP_GPA 0x1fc000UL
 #define RESULT_GPA 0xd000UL
-#define SANDBOX_MAGIC 0x53414e44424f5821ULL
 
 #define CR0_PE (1UL << 0)
 #define CR0_MP (1UL << 1)
@@ -68,21 +83,19 @@
 #define CR0_WP (1UL << 16)
 #define CR0_PG (1UL << 31)
 #define CR4_PAE (1UL << 5)
+#define CR4_OSFXSR (1UL << 9)
+#define CR4_OSXMMEXCPT (1UL << 10)
 #define EFER_SCE (1UL << 0)
 #define EFER_LME (1UL << 8)
 #define EFER_LMA (1UL << 10)
+#define EFER_NXE (1UL << 11)
+#define X86_ARCH_PRCTL 158
+#define X86_ARCH_SET_FS 0x1002
 
 #define PTE_PRESENT (1UL << 0)
 #define PTE_WRITE (1UL << 1)
 #define PTE_USER (1UL << 2)
-
-struct kvm_userspace_memory_region {
-	unsigned int slot;
-	unsigned int flags;
-	unsigned long long guest_phys_addr;
-	unsigned long long memory_size;
-	unsigned long long userspace_addr;
-};
+#define PTE_NX (1ULL << 63)
 
 struct kvm_regs {
 	unsigned long long rax, rbx, rcx, rdx;
@@ -129,6 +142,28 @@ struct kvm_msrs_header {
 	unsigned int pad;
 };
 
+struct kvm_cpuid_entry2 {
+	unsigned int function;
+	unsigned int index;
+	unsigned int flags;
+	unsigned int eax;
+	unsigned int ebx;
+	unsigned int ecx;
+	unsigned int edx;
+	unsigned int padding[3];
+};
+
+struct kvm_cpuid2_header {
+	unsigned int nent;
+	unsigned int padding;
+};
+
+struct kvm_cpuid2 {
+	unsigned int nent;
+	unsigned int padding;
+	struct kvm_cpuid_entry2 entries[256];
+};
+
 struct kvm_msrs {
 	unsigned int nmsrs;
 	unsigned int pad;
@@ -163,18 +198,11 @@ struct kvm_run {
 	};
 };
 
-struct sandbox_result {
-	unsigned long long user_cs;
-	unsigned long long kernel_cs;
-	unsigned long long magic;
-};
-
-extern const unsigned char sandbox_guest_start[];
-extern const unsigned char sandbox_guest_entry[];
-extern const unsigned char sandbox_guest_syscall[];
-extern const unsigned char sandbox_guest_user[];
-extern const unsigned char sandbox_guest_attack[];
-extern const unsigned char sandbox_guest_end[];
+extern const unsigned char sandbox_monitor_start[];
+extern const unsigned char sandbox_monitor_entry[];
+extern const unsigned char sandbox_monitor_syscall[];
+extern const unsigned char sandbox_monitor_page_fault[];
+extern const unsigned char sandbox_monitor_end[];
 
 static unsigned char *guest_memory;
 
@@ -186,27 +214,6 @@ static long syscall3(long nr, long a0, long a1, long a2)
 			 : "a"(nr), "D"(a0), "S"(a1), "d"(a2)
 			 : "rcx", "r11", "memory");
 	return ret;
-}
-
-static long syscall6(long nr, long a0, long a1, long a2, long a3, long a4, long a5)
-{
-	register long r10 __asm__("r10") = a3;
-	register long r8 __asm__("r8") = a4;
-	register long r9 __asm__("r9") = a5;
-	long ret;
-	__asm__ volatile("syscall"
-			 : "=a"(ret)
-			 : "a"(nr), "D"(a0), "S"(a1), "d"(a2), "r"(r10), "r"(r8),
-			   "r"(r9)
-			 : "rcx", "r11", "memory");
-	return ret;
-}
-
-static void syscall1_noreturn(long nr, long a0)
-{
-	__asm__ volatile("syscall" : : "a"(nr), "D"(a0) : "rcx", "r11", "memory");
-	for (;;) {
-	}
 }
 
 static long str_len(const char *s)
@@ -250,6 +257,37 @@ static int fail(const char *message)
 	return 1;
 }
 
+static int decode_exit(struct sandbox_runner *runner, unsigned int *event_kind)
+{
+	struct kvm_run *run = runner->run;
+	unsigned char report;
+
+	if (run->exit_reason != KVM_EXIT_IO || run->io.direction != KVM_EXIT_IO_OUT ||
+	    run->io.port != 0xe9 || run->io.size != 1 || run->io.count != 1 ||
+	    run->io.data_offset >= (unsigned long long)runner->run_mmap_size)
+		return 1;
+	report = *((unsigned char *)run + run->io.data_offset);
+	if (report == SANDBOX_REPORT_SYSCALL)
+		*event_kind = SANDBOX_EVENT_SYSCALL;
+	else if (report == SANDBOX_REPORT_EXIT)
+		*event_kind = SANDBOX_EVENT_EXIT;
+	else if (report == SANDBOX_REPORT_FAULT)
+		*event_kind = SANDBOX_EVENT_FAULT;
+	else
+		return 1;
+	return 0;
+}
+
+static const struct sandbox_linux_abi linux_abi = { .write_number = 1,
+	.read_number = 0, .clock_gettime_number = 228, .brk_number = 12,
+	.openat_number = 257, .close_number = 3, .lseek_number = 8,
+	.set_tid_address_number = 218, .set_robust_list_number = 273, .rseq_number = 334,
+	.rt_sigprocmask_number = 14,
+	.fstat_number = 5, .fstat_size = 144, .prlimit64_number = 302, .readlinkat_number = 267,
+	.mprotect_number = 10, .riscv_hwprobe_number = ~0ULL,
+	.getrandom_number = 318,
+	.exit_number = 60, .exit_group_number = 231 };
+
 static void set_segment(struct kvm_segment *segment, unsigned short selector, unsigned char type,
 			unsigned char dpl, unsigned char long_mode)
 {
@@ -267,25 +305,39 @@ static void set_segment(struct kvm_segment *segment, unsigned short selector, un
 	segment->unusable = 0;
 }
 
-static void setup_guest_memory(unsigned long payload_gpa)
+static void setup_guest_memory(const struct sandbox_image *image)
 {
 	unsigned long long *pml4 = (unsigned long long *)&guest_memory[PML4_GPA];
 	unsigned long long *pdpt = (unsigned long long *)&guest_memory[PDPT_GPA];
 	unsigned long long *pd = (unsigned long long *)&guest_memory[PD_GPA];
 	unsigned long long *pt = (unsigned long long *)&guest_memory[PT_GPA];
 	unsigned long long *gdt = (unsigned long long *)&guest_memory[GDT_GPA];
-	unsigned long payload_page = payload_gpa & ~(PAGE_SIZE - 1);
+	unsigned long long *idt = (unsigned long long *)&guest_memory[IDT_GPA];
+	unsigned char *tss = &guest_memory[TSS_GPA];
+	unsigned long page_fault_gpa = MONITOR_GPA +
+		(unsigned long)(sandbox_monitor_page_fault - sandbox_monitor_start);
 
-	zero_bytes(guest_memory, GUEST_MEMORY_SIZE);
 	pml4[0] = PDPT_GPA | PTE_PRESENT | PTE_WRITE | PTE_USER;
 	pdpt[0] = PD_GPA | PTE_PRESENT | PTE_WRITE | PTE_USER;
 	pd[0] = PT_GPA | PTE_PRESENT | PTE_WRITE | PTE_USER;
 	for (unsigned long i = 0; i < GUEST_MEMORY_SIZE / PAGE_SIZE; i++) {
 		unsigned long gpa = i * PAGE_SIZE;
-		unsigned long flags = PTE_PRESENT | PTE_WRITE;
-		if (gpa == payload_page || gpa == USER_STACK_TOP_GPA - PAGE_SIZE ||
-		    gpa == RESULT_GPA)
-			flags |= PTE_USER;
+		unsigned long long flags = PTE_PRESENT | PTE_WRITE | PTE_NX;
+
+		if (gpa == MONITOR_GPA)
+			flags = PTE_PRESENT;
+		else if (i < sizeof(image->page_flags) && image->page_flags[i] != 0) {
+			flags = PTE_PRESENT | PTE_USER;
+			if (image->page_flags[i] & SANDBOX_IMAGE_PAGE_WRITE)
+				flags |= PTE_WRITE | PTE_NX;
+			else if (!(image->page_flags[i] & SANDBOX_IMAGE_PAGE_EXEC))
+				flags |= PTE_NX;
+		}
+		else if (gpa >= image->image_end && gpa < USER_STACK_TOP_GPA - PAGE_SIZE &&
+			 gpa != RESULT_GPA && gpa != SANDBOX_LAUNCH_ENTRY_GPA)
+			flags = PTE_PRESENT | PTE_WRITE | PTE_USER | PTE_NX;
+		else if (gpa == USER_STACK_TOP_GPA - PAGE_SIZE)
+			flags = PTE_PRESENT | PTE_WRITE | PTE_USER | PTE_NX;
 		pt[i] = gpa | flags;
 	}
 
@@ -294,13 +346,20 @@ static void setup_guest_memory(unsigned long payload_gpa)
 	gdt[2] = 0x00cf93000000ffffULL;
 	gdt[3] = 0x00cff3000000ffffULL;
 	gdt[4] = 0x00affb000000ffffULL;
+	gdt[5] = 0x0000890060000067ULL;
+	gdt[6] = 0;
 
-	copy_bytes(&guest_memory[MONITOR_GPA], sandbox_guest_start,
-		   (unsigned long)(sandbox_guest_end - sandbox_guest_start));
+	*(unsigned long long *)&tss[4] = MONITOR_STACK_TOP_GPA;
+	*(unsigned short *)&tss[102] = 104;
+	idt[28] = (page_fault_gpa & 0xffffULL) | (0x08ULL << 16) | (0x8eULL << 40) |
+		  ((page_fault_gpa & 0xffff0000ULL) << 32);
+	idt[29] = page_fault_gpa >> 32;
+
 }
 
 static int setup_vcpu(long vcpufd, struct vcpu_setup *setup, unsigned long entry_gpa,
-		      unsigned long payload_gpa, unsigned long syscall_gpa)
+		      unsigned long payload_gpa, unsigned long stack_gpa,
+		      unsigned long syscall_gpa)
 {
 	struct kvm_sregs *sregs = &setup->sregs;
 	struct kvm_regs *regs = &setup->regs;
@@ -317,13 +376,21 @@ static int setup_vcpu(long vcpufd, struct vcpu_setup *setup, unsigned long entry
 	sregs->gs = sregs->ds;
 	sregs->ss = sregs->ds;
 	sregs->gdt.base = GDT_GPA;
-	sregs->gdt.limit = 5 * sizeof(unsigned long long) - 1;
-	sregs->idt.base = 0;
-	sregs->idt.limit = 0;
+	sregs->gdt.limit = 7 * sizeof(unsigned long long) - 1;
+	sregs->idt.base = IDT_GPA;
+	sregs->idt.limit = 15 * 16 - 1;
+	sregs->tr.base = TSS_GPA;
+	sregs->tr.limit = 103;
+	sregs->tr.selector = 0x28;
+	sregs->tr.type = 9;
+	sregs->tr.present = 1;
+	sregs->tr.dpl = 0;
+	sregs->tr.s = 0;
+	sregs->tr.unusable = 0;
 	sregs->cr3 = PML4_GPA;
-	sregs->cr4 = CR4_PAE;
+	sregs->cr4 = CR4_PAE | CR4_OSFXSR | CR4_OSXMMEXCPT;
 	sregs->cr0 = CR0_PE | CR0_MP | CR0_ET | CR0_NE | CR0_WP | CR0_PG;
-	sregs->efer = EFER_SCE | EFER_LME | EFER_LMA;
+	sregs->efer = EFER_SCE | EFER_LME | EFER_LMA | EFER_NXE;
 	if (sys_ioctl(vcpufd, KVM_SET_SREGS, (unsigned long)sregs) != 0)
 		return fail("KVM_SET_SREGS failed\n");
 
@@ -338,106 +405,94 @@ static int setup_vcpu(long vcpufd, struct vcpu_setup *setup, unsigned long entry
 		return fail("KVM_SET_MSRS failed\n");
 
 	regs->rip = entry_gpa;
-	regs->rsp = 0x7000;
+	regs->rsp = MONITOR_STACK_TOP_GPA;
 	regs->rflags = 0x2;
 	regs->rdi = payload_gpa;
-	regs->rsi = USER_STACK_TOP_GPA;
+	regs->rsi = stack_gpa;
 	if (sys_ioctl(vcpufd, KVM_SET_REGS, (unsigned long)regs) != 0)
 		return fail("KVM_SET_REGS failed\n");
 	return 0;
 }
 
-static int run_sandbox(void)
+static int setup_cpuid(long kvmfd, long vcpufd)
 {
-	unsigned long blob_size = (unsigned long)(sandbox_guest_end - sandbox_guest_start);
-	unsigned long entry_gpa = MONITOR_GPA +
-		(unsigned long)(sandbox_guest_entry - sandbox_guest_start);
-	unsigned long syscall_gpa = MONITOR_GPA +
-		(unsigned long)(sandbox_guest_syscall - sandbox_guest_start);
-	unsigned long payload_gpa = MONITOR_GPA +
-		(unsigned long)(sandbox_guest_user - sandbox_guest_start);
-	struct sandbox_result *result;
-	struct kvm_userspace_memory_region *region;
-	struct vcpu_setup *setup;
-	long kvmfd, vmfd, vcpufd, mmap_size;
-	struct kvm_run *run;
+	static struct kvm_cpuid2 cpuid;
 
-	if (blob_size > 2 * PAGE_SIZE || (payload_gpa & (PAGE_SIZE - 1)) != 0)
-		return fail("invalid sandbox guest layout\n");
-	puts("kvm sandbox: start\n");
+	cpuid.nent = 256;
+	if (sys_ioctl(kvmfd, KVM_GET_SUPPORTED_CPUID, (unsigned long)&cpuid) != 0)
+		return fail("KVM_GET_SUPPORTED_CPUID failed\n");
+	for (unsigned int index = 0; index < cpuid.nent; index++) {
+		struct kvm_cpuid_entry2 *entry = &cpuid.entries[index];
 
-	kvmfd = syscall3(SYS_OPENAT, AT_FDCWD, (long)"/dev/kvm", O_RDWR | O_CLOEXEC);
-	if (kvmfd < 0)
-		return fail("open /dev/kvm failed\n");
-	if (sys_ioctl(kvmfd, KVM_GET_API_VERSION, 0) != 12)
-		return fail("KVM_GET_API_VERSION failed\n");
-	mmap_size = sys_ioctl(kvmfd, KVM_GET_VCPU_MMAP_SIZE, 0);
-	if (mmap_size < (long)sizeof(struct kvm_run))
-		return fail("KVM_GET_VCPU_MMAP_SIZE failed\n");
-	puts("kvm sandbox: KVM device ready\n");
-
-	vmfd = sys_ioctl(kvmfd, KVM_CREATE_VM, 0);
-	if (vmfd < 0)
-		return fail("KVM_CREATE_VM failed\n");
-	puts("kvm sandbox: VM created\n");
-
-	guest_memory = (unsigned char *)syscall6(SYS_MMAP, 0, GUEST_MEMORY_SIZE,
-						 PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS,
-						 -1, 0);
-	if ((long)guest_memory < 0)
-		return fail("mmap guest memory failed\n");
-	result = (struct sandbox_result *)&guest_memory[RESULT_GPA];
-
-	setup_guest_memory(payload_gpa);
-	puts("kvm sandbox: guest image ready\n");
-	region = (struct kvm_userspace_memory_region *)guest_memory;
-	zero_bytes(region, sizeof(*region));
-	region->slot = 0;
-	region->memory_size = GUEST_MEMORY_SIZE;
-	region->userspace_addr = (unsigned long long)guest_memory;
-	if (sys_ioctl(vmfd, KVM_SET_USER_MEMORY_REGION, (unsigned long)region) != 0)
-		return fail("KVM_SET_USER_MEMORY_REGION failed\n");
-	puts("kvm sandbox: guest memory registered\n");
-
-	vcpufd = sys_ioctl(vmfd, KVM_CREATE_VCPU, 0);
-	if (vcpufd < 0)
-		return fail("KVM_CREATE_VCPU failed\n");
-	run = (struct kvm_run *)syscall6(SYS_MMAP, 0, mmap_size, PROT_READ | PROT_WRITE,
-					 MAP_SHARED, vcpufd, 0);
-	if ((long)run < 0)
-		return fail("mmap KVM vCPU failed\n");
-	puts("kvm sandbox: vCPU ready\n");
-	setup = (struct vcpu_setup *)guest_memory;
-	if (setup_vcpu(vcpufd, setup, entry_gpa, payload_gpa, syscall_gpa) != 0)
-		return 1;
-	puts("kvm sandbox: guest ready\n");
-
-	if (sys_ioctl(vcpufd, KVM_RUN, 0) != 0)
-		return fail("KVM_RUN failed\n");
-	puts("kvm sandbox: first exit\n");
-	if (run->exit_reason != KVM_EXIT_IO || run->io.direction != KVM_EXIT_IO_OUT ||
-	    run->io.port != 0xe9 || run->io.size != 1 || run->io.count != 1 ||
-	    run->io.data_offset >= (unsigned long long)mmap_size ||
-	    *((unsigned char *)run + run->io.data_offset) != 'P')
-		return fail("sandbox monitor returned an unexpected KVM exit\n");
-
-	if (result->user_cs != 0x23 || result->kernel_cs != 0x08 ||
-	    result->magic != SANDBOX_MAGIC)
-		return fail("sandbox privilege transition check failed\n");
-
-	if (sys_ioctl(vcpufd, KVM_RUN, 0) != 0)
-		return fail("second KVM_RUN failed\n");
-	if (run->exit_reason != KVM_EXIT_SHUTDOWN)
-		return fail("sandbox page isolation check failed\n");
-
-	syscall3(SYS_CLOSE, vcpufd, 0, 0);
-	syscall3(SYS_CLOSE, vmfd, 0, 0);
-	syscall3(SYS_CLOSE, kvmfd, 0, 0);
-	puts("kvm sandbox pass\n");
+		if (entry->function == 1 && entry->index == 0)
+			entry->ecx &= ~((1U << 26) | (1U << 27) | (1U << 28));
+	}
+	if (sys_ioctl(vcpufd, KVM_SET_CPUID2, (unsigned long)&cpuid) != 0)
+		return fail("KVM_SET_CPUID2 failed\n");
 	return 0;
 }
 
-void _start(void)
+static int prepare_backend(struct sandbox_runner *runner,
+			   const struct sandbox_image *image,
+			   unsigned long long stack_pointer)
 {
-	syscall1_noreturn(SYS_EXIT, run_sandbox());
+	unsigned long blob_size = (unsigned long)(sandbox_monitor_end - sandbox_monitor_start);
+	unsigned long entry_gpa = MONITOR_GPA +
+		(unsigned long)(sandbox_monitor_entry - sandbox_monitor_start);
+	unsigned long syscall_gpa = MONITOR_GPA +
+		(unsigned long)(sandbox_monitor_syscall - sandbox_monitor_start);
+	struct vcpu_setup *setup;
+
+	if (blob_size > PAGE_SIZE)
+		return fail("invalid sandbox guest layout\n");
+	guest_memory = runner->guest_memory;
+	copy_bytes(&guest_memory[MONITOR_GPA], sandbox_monitor_start, blob_size);
+	setup_guest_memory(image);
+	if (setup_cpuid(runner->kvm_fd, runner->vcpu_fd) != 0)
+		return 1;
+	setup = (struct vcpu_setup *)guest_memory;
+	return setup_vcpu(runner->vcpu_fd, setup, entry_gpa, image->entry,
+			  stack_pointer, syscall_gpa);
 }
+
+static int service_event(struct sandbox_runner *runner,
+			 volatile struct sandbox_control *control,
+			 const struct sandbox_event *event)
+{
+	struct kvm_sregs sregs;
+	unsigned long long base;
+
+	if (event->kind != SANDBOX_EVENT_SYSCALL || event->number != X86_ARCH_PRCTL)
+		return 1;
+	base = event->args[1];
+	if (event->args[0] != X86_ARCH_SET_FS || base >= runner->guest_memory_size) {
+		fail("sandbox arch_prctl arguments are invalid\n");
+		return -1;
+	}
+	if (sys_ioctl(runner->vcpu_fd, KVM_GET_SREGS, (unsigned long)&sregs) != 0) {
+		fail("sandbox KVM_GET_SREGS failed\n");
+		return -1;
+	}
+	sregs.fs.base = base;
+	if (sys_ioctl(runner->vcpu_fd, KVM_SET_SREGS, (unsigned long)&sregs) != 0) {
+		fail("sandbox KVM_SET_SREGS failed\n");
+		return -1;
+	}
+	control->result = 0;
+	control->error = 0;
+	control->action = SANDBOX_ACTION_RESUME;
+	return 0;
+}
+
+const struct sandbox_backend_ops sandbox_backend = {
+	.guest_memory_size = GUEST_MEMORY_SIZE,
+	.application_start = APPLICATION_START_GPA,
+	.stack_bottom = USER_STACK_TOP_GPA - SANDBOX_USER_STACK_SIZE,
+	.stack_top = USER_STACK_TOP_GPA,
+	.control_gpa = RESULT_GPA,
+	.elf_machine = EM_X86_64,
+	.linux_abi = &linux_abi,
+	.prepare = prepare_backend,
+	.decode_exit = decode_exit,
+	.service_event = service_event,
+};

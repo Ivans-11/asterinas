@@ -2,11 +2,12 @@ arch = "riscv64"
 case = "sandbox"
 test_files = ["kvm_sandbox"]
 timeout_secs = 120
-success_regex = ["(?m)^kvm sandbox pass\\s*$"]
+success_regex = ["(?m)^sandbox file access pass!\\s*$"]
 fail_regex = [
   "(?i)panic",
   "(?i)KVM_.*failed",
   "(?i)sandbox.*failed",
+  "(?i)segmentation fault",
 ]
 shell_prompt = "~ # "
-shell_init_cmd = "/test/kvm_sandbox"
+shell_init_cmd = "if /test/kvm_sandbox /test/kvm_sandbox_invalid_elf >/dev/null 2>&1; then exit 1; fi; if /test/kvm_sandbox /test/kvm_sandbox_monitor_attack >/dev/null 2>&1; then exit 1; fi; if /test/kvm_sandbox /test/kvm_sandbox_control_attack >/dev/null 2>&1; then exit 1; fi; if /test/kvm_sandbox /test/kvm_sandbox_spin >/dev/null 2>&1; then exit 1; fi; if /test/kvm_sandbox /test/kvm_sandbox_file_app /test/kvm_sandbox_data >/dev/null 2>&1; then exit 1; fi; /test/kvm_sandbox /test/kvm_sandbox_app && /test/kvm_sandbox /test/kvm_sandbox_app_alt ok && /test/kvm_sandbox /test/kvm_sandbox_c_app c-ok && /test/kvm_sandbox /test/kvm_sandbox_libc_app libc-ok && /test/kvm_sandbox --allow-read /test/kvm_sandbox_data -- /test/kvm_sandbox_file_app /test/kvm_sandbox_data"
