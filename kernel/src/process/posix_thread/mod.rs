@@ -21,6 +21,7 @@ use crate::{
         ExitCode, Pid,
         namespace::nsproxy::NsProxy,
         posix_thread::ptrace::TraceeStatus,
+        seccomp::{SeccompAction, SeccompData, SeccompFilter, SeccompState},
         signal::{PauseReason, PollHandle, sig_mask::SigMask},
     },
     thread::{Thread, Tid},
@@ -107,11 +108,38 @@ pub struct PosixThread {
 
     /// The personality value for this thread.
     personality: AtomicU32,
+
+    /// Seccomp state inherited by clone and preserved across exec.
+    seccomp: Mutex<SeccompState>,
 }
 
 impl PosixThread {
     pub fn process(&self) -> Arc<Process> {
         self.process.upgrade().unwrap()
+    }
+
+    pub fn seccomp_state(&self) -> SeccompState {
+        self.seccomp.lock().clone()
+    }
+
+    pub(crate) fn replace_seccomp_state(&self, state: SeccompState) {
+        *self.seccomp.lock() = state;
+    }
+
+    pub fn no_new_privs(&self) -> bool {
+        self.seccomp.lock().no_new_privs
+    }
+
+    pub fn set_no_new_privs(&self) {
+        self.seccomp.lock().no_new_privs = true;
+    }
+
+    pub fn install_seccomp_filter(&self, filter: Arc<SeccompFilter>) {
+        self.seccomp.lock().install_filter(filter);
+    }
+
+    pub fn evaluate_seccomp(&self, data: &SeccompData) -> SeccompAction {
+        self.seccomp.lock().evaluate(data)
     }
 
     pub fn weak_process(&self) -> &Weak<Process> {

@@ -70,6 +70,9 @@ pub const SI_QUEUE: i32 = -1;
 pub const SI_USER: i32 = 0;
 pub const SI_KERNEL: i32 = 128;
 
+/// `si_code` used when seccomp generates `SIGSYS`.
+pub const SYS_SECCOMP: i32 = 1;
+
 pub const FPE_INTDIV: i32 = 1;
 pub const FPE_INTOVF: i32 = 2;
 pub const FPE_FLTDIV: i32 = 3;

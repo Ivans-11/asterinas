@@ -9,6 +9,10 @@ fail_regex = [
   "(?i)runsc.*failed",
   "(?i)error initializing kvm",
   "(?i)creating vm:",
+  "(?m)^panic:",
+  "(?i)failed to set filter",
+  "(?i)creating container:",
+  "(?i)flag provided but not defined:",
 ]
 shell_prompt = "~ # "
 shell_init_cmd = "mkdir -p /tmp/runsc-root; /test/runsc --root=/tmp/runsc-root --platform=kvm --network=none --ignore-cgroups --directfs=false --TESTONLY-unsafe-nonroot --log=/dev/console --panic-log=/dev/console do --force-overlay=false /bin/busybox sh -c \"echo 'gvisor kvm test pass!'\""

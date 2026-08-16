@@ -8,7 +8,7 @@
 )]
 
 pub use clock_gettime::ClockId;
-use ostd::arch::cpu::context::UserContext;
+use ostd::{arch::cpu::context::UserContext, user::UserContextApi};
 pub use timer_create::create_timer;
 
 use crate::{cpu::LinuxAbi, prelude::*};
@@ -134,6 +134,7 @@ mod sched_setattr;
 mod sched_setparam;
 mod sched_setscheduler;
 mod sched_yield;
+mod seccomp;
 mod select;
 mod semctl;
 mod semget;
@@ -373,6 +374,55 @@ impl SyscallArgument {
 
 pub fn handle_syscall(ctx: &Context, user_ctx: &mut UserContext) {
     let syscall_frame = SyscallArgument::new_from_context(user_ctx);
+    let seccomp_data = crate::process::seccomp::SeccompData::new(
+        syscall_frame.syscall_number,
+        user_ctx.instruction_pointer(),
+        syscall_frame.args,
+    );
+    match ctx.posix_thread.evaluate_seccomp(&seccomp_data) {
+        crate::process::seccomp::SeccompAction::Allow
+        | crate::process::seccomp::SeccompAction::Log => {}
+        crate::process::seccomp::SeccompAction::Errno(errno) => {
+            user_ctx.set_syscall_ret(-(errno as isize) as usize);
+            return;
+        }
+        crate::process::seccomp::SeccompAction::Trace(_) => {
+            // Without a ptrace seccomp-event tracer, Linux reports ENOSYS.
+            user_ctx.set_syscall_ret(-(Errno::ENOSYS as isize) as usize);
+            return;
+        }
+        crate::process::seccomp::SeccompAction::Trap(data) => {
+            use crate::process::signal::{
+                c_types::siginfo_t,
+                constants::{SIGSYS, SYS_SECCOMP},
+                signals::raw::RawSignal,
+            };
+
+            let mut info = siginfo_t::new(SIGSYS, SYS_SECCOMP);
+            info.si_errno = data as i32;
+            ctx.posix_thread
+                .enqueue_signal(Box::new(RawSignal::new(info)));
+            // Do not overwrite the syscall register. Linux delivers SIGSYS
+            // with the original syscall number still available to the handler.
+            return;
+        }
+        crate::process::seccomp::SeccompAction::KillThread => {
+            crate::process::posix_thread::do_exit(
+                crate::process::TermStatus::Killed(crate::process::signal::constants::SIGSYS),
+                ctx,
+                user_ctx,
+            );
+            return;
+        }
+        crate::process::seccomp::SeccompAction::KillProcess => {
+            crate::process::posix_thread::do_exit_group(
+                crate::process::TermStatus::Killed(crate::process::signal::constants::SIGSYS),
+                ctx,
+                user_ctx,
+            );
+            return;
+        }
+    }
     let syscall_return = arch::syscall_dispatch(
         syscall_frame.syscall_number,
         syscall_frame.args,
