@@ -8,7 +8,6 @@ use core::{
 };
 
 use align_ext::AlignExt;
-use aster_util::printer::VmPrinter;
 use ostd::{
     io::IoMem,
     mm::{
@@ -226,7 +225,7 @@ impl VmMapping {
     /// Reference: <https://elixir.bootlin.com/linux/v6.16.5/source/fs/proc/task_mmu.c#L304-L359>
     pub fn print_to_maps(
         &self,
-        printer: &mut VmPrinter,
+        printer: &mut impl core::fmt::Write,
         parent_vmar: &Vmar,
         parent_heap_guard: &LockedHeap,
         path_resolver: &PathResolver,
@@ -316,9 +315,11 @@ impl VmMapping {
         let name = name();
 
         if let Some(name) = name {
-            writeln!(printer, "{:<72} {}", line, name)?;
+            writeln!(printer, "{:<72} {}", line, name)
+                .map_err(|_| Error::with_message(Errno::EFAULT, "failed to print VMA"))?;
         } else {
-            writeln!(printer, "{}", line)?;
+            writeln!(printer, "{}", line)
+                .map_err(|_| Error::with_message(Errno::EFAULT, "failed to print VMA"))?;
         }
 
         Ok(())

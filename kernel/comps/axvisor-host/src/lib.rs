@@ -128,11 +128,21 @@ pub trait ControlEndpointRuntime: Sync {
     /// Copies bytes into the current userspace task.
     fn copy_to_user(&self, addr: usize, buf: &[u8]) -> AxResult;
 
-    // Pinned userspace pages.
+    /// Returns whether a signal should interrupt the current userspace control operation.
+    fn current_thread_has_pending_signal(&self, blocked_signals: &[u8]) -> AxResult<bool>;
 
-    /// Pins userspace memory from the current userspace task.
+    // Retained userspace address spaces and pinned pages.
+
+    /// Retains the current task's userspace address space.
+    fn retain_current_user_address_space(&self) -> AxResult<control::UserAddressSpaceId>;
+
+    /// Releases a previously retained userspace address space.
+    fn release_user_address_space(&self, id: control::UserAddressSpaceId) -> AxResult;
+
+    /// Pins userspace memory from a retained address space.
     fn pin_user_pages(
         &self,
+        user_address_space: control::UserAddressSpaceId,
         addr: usize,
         len: usize,
         writable: bool,
@@ -582,12 +592,25 @@ impl control::ControlIf for ControlIfImpl {
         control_endpoint_runtime().copy_to_user(addr, buf)
     }
 
+    fn current_thread_has_pending_signal(blocked_signals: &[u8]) -> AxResult<bool> {
+        control_endpoint_runtime().current_thread_has_pending_signal(blocked_signals)
+    }
+
+    fn retain_current_user_address_space() -> AxResult<control::UserAddressSpaceId> {
+        control_endpoint_runtime().retain_current_user_address_space()
+    }
+
+    fn release_user_address_space(id: control::UserAddressSpaceId) -> AxResult {
+        control_endpoint_runtime().release_user_address_space(id)
+    }
+
     fn pin_user_pages(
+        user_address_space: control::UserAddressSpaceId,
         addr: usize,
         len: usize,
         writable: bool,
     ) -> AxResult<control::PinnedUserPages> {
-        control_endpoint_runtime().pin_user_pages(addr, len, writable)
+        control_endpoint_runtime().pin_user_pages(user_address_space, addr, len, writable)
     }
 
     fn release_pinned_user_pages(id: control::PinnedUserPagesId) -> AxResult {

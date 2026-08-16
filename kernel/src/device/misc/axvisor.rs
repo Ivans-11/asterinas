@@ -32,9 +32,15 @@ use crate::{
         },
     },
     prelude::*,
-    process::signal::{PollHandle, Pollable, Poller},
+    process::{
+        posix_thread::AsPosixThread,
+        signal::{HandlePendingSignal, PollHandle, Pollable, Poller, sig_mask::SigMask},
+    },
     util::ioctl::RawIoctl,
-    vm::page_cache::{Vmo, VmoOptions},
+    vm::{
+        page_cache::{Vmo, VmoOptions},
+        vmar::VmarHandle,
+    },
 };
 
 const KVM_MINOR: u32 = 232;
@@ -47,6 +53,9 @@ static USER_FD_REFS: Mutex<BTreeMap<control::UserFdRefId, Arc<dyn FileLike>>> =
     Mutex::new(BTreeMap::new());
 static NEXT_PINNED_USER_PAGES: AtomicU64 = AtomicU64::new(1);
 static PINNED_USER_PAGES: Mutex<BTreeMap<control::PinnedUserPagesId, Vec<UFrame>>> =
+    Mutex::new(BTreeMap::new());
+static NEXT_USER_ADDRESS_SPACE: AtomicU64 = AtomicU64::new(1);
+static USER_ADDRESS_SPACES: Mutex<BTreeMap<control::UserAddressSpaceId, Arc<VmarHandle>>> =
     Mutex::new(BTreeMap::new());
 
 pub(super) struct AxvisorControlEndpointRuntime;
@@ -120,13 +129,26 @@ impl ControlEndpointRuntime for AxvisorControlEndpointRuntime {
         copy_to_user(addr, buf).map_err(to_ax_error)
     }
 
+    fn current_thread_has_pending_signal(&self, blocked_signals: &[u8]) -> AxResult<bool> {
+        current_thread_has_pending_signal(blocked_signals).map_err(to_ax_error)
+    }
+
+    fn retain_current_user_address_space(&self) -> AxResult<control::UserAddressSpaceId> {
+        retain_current_user_address_space().map_err(to_ax_error)
+    }
+
+    fn release_user_address_space(&self, id: control::UserAddressSpaceId) -> AxResult {
+        release_user_address_space(id).map_err(to_ax_error)
+    }
+
     fn pin_user_pages(
         &self,
+        user_address_space: control::UserAddressSpaceId,
         addr: usize,
         len: usize,
         writable: bool,
     ) -> AxResult<control::PinnedUserPages> {
-        pin_user_pages(addr, len, writable).map_err(to_ax_error)
+        pin_user_pages(user_address_space, addr, len, writable).map_err(to_ax_error)
     }
 
     fn release_pinned_user_pages(&self, id: control::PinnedUserPagesId) -> AxResult {
@@ -385,6 +407,23 @@ fn copy_to_user(addr: usize, buf: &[u8]) -> Result<()> {
     Ok(())
 }
 
+fn current_thread_has_pending_signal(blocked_signals: &[u8]) -> Result<bool> {
+    let task = Task::current()
+        .ok_or_else(|| Error::with_message(Errno::ESRCH, "current task is not available"))?;
+    let posix_thread = task
+        .as_posix_thread()
+        .ok_or_else(|| Error::with_message(Errno::EINVAL, "current task is not a POSIX thread"))?;
+
+    if blocked_signals.is_empty() {
+        return Ok(posix_thread.has_pending());
+    }
+    let bytes: [u8; size_of::<u64>()] = blocked_signals
+        .try_into()
+        .map_err(|_| Error::with_message(Errno::EINVAL, "invalid KVM signal mask size"))?;
+    let blocked = SigMask::from(u64::from_ne_bytes(bytes));
+    Ok(posix_thread.has_pending_with_mask(blocked))
+}
+
 fn get_user_fd_ref(fd: Fd) -> Result<control::UserFdRefId> {
     let task = Task::current()
         .ok_or_else(|| Error::with_message(Errno::ESRCH, "current task is not available"))?;
@@ -470,18 +509,54 @@ fn read_mmap_area(area: control::MmapAreaId, offset: usize, buf: &mut [u8]) -> R
     Ok(())
 }
 
-fn pin_user_pages(addr: usize, len: usize, writable: bool) -> Result<control::PinnedUserPages> {
-    if !addr.is_multiple_of(PAGE_SIZE) || !len.is_multiple_of(PAGE_SIZE) {
-        return_errno_with_message!(Errno::EINVAL, "pinned user memory must be page aligned");
-    }
-
+fn retain_current_user_address_space() -> Result<control::UserAddressSpaceId> {
     let task = Task::current()
         .ok_or_else(|| Error::with_message(Errno::ESRCH, "current task is not available"))?;
     let thread_local = task
         .as_thread_local()
         .ok_or_else(|| Error::with_message(Errno::EINVAL, "current task is not a user thread"))?;
-    let user_space = CurrentUserSpace::new(thread_local);
-    let frames = user_space.vmar().acquire_pages_alien(addr, len, writable)?;
+    let vmar = Arc::new(
+        thread_local
+            .vmar()
+            .borrow()
+            .as_ref()
+            .ok_or_else(|| {
+                Error::with_message(Errno::ESRCH, "current address space is unavailable")
+            })?
+            .clone_handle(),
+    );
+    let id = NEXT_USER_ADDRESS_SPACE.fetch_add(1, Ordering::Relaxed);
+    if id == 0 {
+        return_errno_with_message!(Errno::EOVERFLOW, "user address space id overflow");
+    }
+    USER_ADDRESS_SPACES.lock().insert(id, vmar);
+    Ok(id)
+}
+
+fn release_user_address_space(id: control::UserAddressSpaceId) -> Result<()> {
+    USER_ADDRESS_SPACES
+        .lock()
+        .remove(&id)
+        .map(|_| ())
+        .ok_or_else(|| Error::with_message(Errno::ENOENT, "user address space not found"))
+}
+
+fn pin_user_pages(
+    user_address_space: control::UserAddressSpaceId,
+    addr: usize,
+    len: usize,
+    writable: bool,
+) -> Result<control::PinnedUserPages> {
+    if !addr.is_multiple_of(PAGE_SIZE) || !len.is_multiple_of(PAGE_SIZE) {
+        return_errno_with_message!(Errno::EINVAL, "pinned user memory must be page aligned");
+    }
+
+    let vmar = USER_ADDRESS_SPACES
+        .lock()
+        .get(&user_address_space)
+        .cloned()
+        .ok_or_else(|| Error::with_message(Errno::ENOENT, "user address space not found"))?;
+    let frames = vmar.acquire_pages_alien(addr, len, writable)?;
     let pages = frames.iter().map(|frame| frame.paddr().into()).collect();
 
     let id = next_pinned_user_pages_id()?;

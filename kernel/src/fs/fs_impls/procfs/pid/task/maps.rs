@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use aster_util::printer::VmPrinter;
-
 use super::TidDirOps;
 use crate::{
     events::IoEvents,
@@ -57,13 +55,39 @@ impl ProcFileOpsByHandle for MapsFileOps {
             )
             .map_err(|_| Error::with_message(Errno::EACCES, "alien access is denied"))?;
 
-        let vmar = vmar_guard.snapshot();
-        Ok(Box::new(MapsFileHandle(self.0.clone(), vmar)))
+        let vmar_snapshot = vmar_guard.snapshot();
+        let Some(vmar) = vmar_guard.as_ref() else {
+            return_errno_with_message!(Errno::ESRCH, "the process has exited");
+        };
+
+        let current = current_thread!();
+        let fs_ref = current.as_posix_thread().unwrap().read_fs();
+        let path_resolver = fs_ref.resolver().read();
+
+        // Keep the generated contents stable for the lifetime of this file handle. Re-generating
+        // the text for every partial read and skipping by byte offset can splice two different VMA
+        // layouts together if the process maps or unmaps memory between reads.
+        let heap_guard = vmar.process_vm().heap().lock();
+        let guard = vmar.query(VMAR_LOWEST_ADDR..VMAR_CAP_ADDR);
+        let mut contents = String::new();
+        for vm_mapping in guard.iter() {
+            vm_mapping.print_to_maps(&mut contents, vmar, &heap_guard, &path_resolver)?;
+        }
+
+        Ok(Box::new(MapsFileHandle {
+            dir: self.0.clone(),
+            vmar_snapshot,
+            contents: contents.into_bytes(),
+        }))
     }
 }
 
 /// A file handle opened from `/proc/[pid]/task/[tid]/maps` (and also `/proc/[pid]/maps`).
-struct MapsFileHandle(TidDirOps, VmarSnapshot);
+struct MapsFileHandle {
+    dir: TidDirOps,
+    vmar_snapshot: VmarSnapshot,
+    contents: Vec<u8>,
+}
 
 impl Pollable for MapsFileHandle {
     fn poll(&self, mask: IoEvents, _poller: Option<&mut PollHandle>) -> IoEvents {
@@ -79,34 +103,21 @@ impl FileOps for MapsFileHandle {
         writer: &mut VmWriter,
         _status_flags: StatusFlags,
     ) -> Result<usize> {
-        let mut printer = VmPrinter::new_skip(writer, offset);
-
-        let Some(process) = self.0.process() else {
+        let Some(process) = self.dir.process() else {
             return_errno_with_message!(Errno::ESRCH, "the process does not exist");
         };
         let vmar_guard = process.lock_vmar();
-        if !vmar_guard.is_same_as(&self.1) {
+        if !vmar_guard.is_same_as(&self.vmar_snapshot) {
             // The process has executed a new program.
             return Ok(0);
         }
-        let Some(vmar) = vmar_guard.as_ref() else {
+        if vmar_guard.as_ref().is_none() {
             // The process has exited.
             return Ok(0);
-        };
-
-        let current = current_thread!();
-        let fs_ref = current.as_posix_thread().unwrap().read_fs();
-        let path_resolver = fs_ref.resolver().read();
-
-        // To maintain a consistent lock order and avoid race conditions, we must lock the heap
-        // before querying the VMAR.
-        let heap_guard = vmar.process_vm().heap().lock();
-        let guard = vmar.query(VMAR_LOWEST_ADDR..VMAR_CAP_ADDR);
-        for vm_mapping in guard.iter() {
-            vm_mapping.print_to_maps(&mut printer, vmar, &heap_guard, &path_resolver)?;
         }
 
-        Ok(printer.bytes_written())
+        let mut reader = VmReader::from(&self.contents[offset.min(self.contents.len())..]);
+        Ok(writer.write_fallible(&mut reader)?)
     }
 
     fn write_at(

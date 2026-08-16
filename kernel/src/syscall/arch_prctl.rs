@@ -2,7 +2,7 @@
 
 use ostd::{
     arch::cpu::context::{FsBase, GsBase},
-    mm::MAX_USERSPACE_VADDR,
+    mm::{MAX_USERSPACE_VADDR, VmIo},
 };
 
 use super::SyscallReturn;
@@ -46,7 +46,15 @@ fn do_arch_prctl(code: ArchPrctlCode, addr: u64, ctx: &Context) -> Result<u64> {
             supp.fs_base().set(FsBase::new(addr as usize));
             Ok(0)
         }
-        ArchPrctlCode::ARCH_GET_FS => Ok(supp.fs_base().get().addr() as u64),
-        ArchPrctlCode::ARCH_GET_GS => Ok(supp.gs_base().get().addr() as u64),
+        ArchPrctlCode::ARCH_GET_FS => {
+            let fs_base = supp.fs_base().get().addr() as u64;
+            ctx.user_space().write_val(addr as Vaddr, &fs_base)?;
+            Ok(0)
+        }
+        ArchPrctlCode::ARCH_GET_GS => {
+            let gs_base = supp.gs_base().get().addr() as u64;
+            ctx.user_space().write_val(addr as Vaddr, &gs_base)?;
+            Ok(0)
+        }
     }
 }

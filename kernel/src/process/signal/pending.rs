@@ -78,7 +78,7 @@ impl HandlePendingSignal for Context<'_> {
     fn has_pending(&self) -> bool {
         let posix_thread = self.posix_thread;
         let process = self.process.as_ref();
-        has_pending_signal(posix_thread, process)
+        has_pending_signal(posix_thread, process, posix_thread.sig_mask())
     }
 
     fn has_pending_sigkill(&self) -> bool {
@@ -107,7 +107,7 @@ impl HandlePendingSignal for PosixThread {
 
     fn has_pending(&self) -> bool {
         let process = self.process();
-        has_pending_signal(self, process.as_ref())
+        has_pending_signal(self, process.as_ref(), self.sig_mask())
     }
 
     fn has_pending_sigkill(&self) -> bool {
@@ -128,7 +128,15 @@ impl HandlePendingSignal for PosixThread {
     }
 }
 
-fn has_pending_signal(posix_thread: &PosixThread, process: &Process) -> bool {
+impl PosixThread {
+    /// Returns whether a pending signal is deliverable under an explicit temporary mask.
+    pub fn has_pending_with_mask(&self, blocked: SigMask) -> bool {
+        let process = self.process();
+        has_pending_signal(self, process.as_ref(), blocked)
+    }
+}
+
+fn has_pending_signal(posix_thread: &PosixThread, process: &Process, blocked: SigMask) -> bool {
     // Fast path: No signals are pending.
     if posix_thread.sig_queues().is_empty() && process.sig_queues().is_empty() {
         return false;
@@ -137,8 +145,6 @@ fn has_pending_signal(posix_thread: &PosixThread, process: &Process) -> bool {
     // Slow path: Some signals are pending.
     let sig_dispositions = process.sig_dispositions().lock();
     let sig_dispositions = sig_dispositions.lock();
-    let blocked = posix_thread.sig_mask();
-
     posix_thread
         .sig_queues()
         .has_pending(blocked, &sig_dispositions)

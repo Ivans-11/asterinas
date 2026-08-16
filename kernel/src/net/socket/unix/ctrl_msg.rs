@@ -13,7 +13,6 @@ use crate::{
     },
     net::socket::util::{CControlHeader, ControlMessage},
     prelude::*,
-    process::{credentials::capabilities::CapSet, posix_thread::AsPosixThread},
     util::net::CSocketOptionLevel,
 };
 
@@ -252,14 +251,6 @@ impl AuxiliaryData {
             .any(|file| (&**file as &dyn Any).is::<UnixStreamSocket>())
         {
             warn!("UNIX sockets in SCM_RIGHTS messages can leak kernel resource");
-
-            let credentials = current_thread!().as_posix_thread().unwrap().credentials();
-            if !credentials.effective_capset().contains(CapSet::SYS_ADMIN) {
-                return_errno_with_message!(
-                    Errno::EPERM,
-                    "UNIX sockets in SCM_RIGHTS messages can leak kernel resource"
-                )
-            }
         }
 
         Ok(Self { files, cred })
