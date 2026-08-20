@@ -985,8 +985,8 @@ static int main(void)
 	if (expect_ioctl_at_least(fd, KVM_CHECK_EXTENSION, KVM_CAP_MAX_VCPUS,
 				  KVM_CAP_VCPUS_MIN, "KVM_CAP_MAX_VCPUS") != 0)
 		return 1;
-	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_NR_MEMSLOTS, 32,
-			 "KVM_CAP_NR_MEMSLOTS") != 0)
+	if (expect_ioctl_at_least(fd, KVM_CHECK_EXTENSION, KVM_CAP_NR_MEMSLOTS, 32,
+				  "KVM_CAP_NR_MEMSLOTS") != 0)
 		return 1;
 #if defined(__riscv) && __riscv_xlen == 64
 	if (expect_ioctl(fd, KVM_CHECK_EXTENSION, KVM_CAP_ONE_REG, 1, "KVM_CAP_ONE_REG") != 0)
