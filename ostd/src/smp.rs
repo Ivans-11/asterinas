@@ -104,18 +104,6 @@ pub(crate) unsafe fn do_inter_processor_call(_trapframe: &TrapFrame) {
     }
 }
 
-/// Checks whether the current host CPU has a queued inter-processor call.
-///
-/// VM-exit external interrupts can reuse the host IPI vector for a guest IPI.
-/// In that case the host callback must not run an unrelated VM-exit stack path
-/// when there is no host work queued.
-pub(crate) fn has_pending_inter_processor_calls() -> bool {
-    !CALL_QUEUES
-        .get_on_cpu(crate::cpu::CpuId::current_racy())
-        .lock()
-        .is_empty()
-}
-
 pub(super) fn init() {
     IPI_SENDER.call_once(|| {
         let hw_cpu_ids = crate::boot::smp::construct_hw_cpu_id_mapping();

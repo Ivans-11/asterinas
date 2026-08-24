@@ -657,30 +657,32 @@ impl irq::IrqIf for IrqIfImpl {
         if handlers.contains_key(&vector) {
             return false;
         }
-        handlers.insert(vector, handler);
         #[cfg(target_arch = "x86_64")]
-        register_x86_ioapic_forwarding_irq(vector);
+        if !register_x86_ioapic_forwarding_irq(vector) {
+            return false;
+        }
+        handlers.insert(vector, handler);
         true
     }
 }
 
 #[cfg(target_arch = "x86_64")]
-fn register_x86_ioapic_forwarding_irq(vector: usize) {
+fn register_x86_ioapic_forwarding_irq(vector: usize) -> bool {
     const IOAPIC_VECTOR_BASE: usize = 0x20;
     const IOAPIC_GSI_COUNT: usize = 24;
     const IOAPIC_VECTOR_END: usize = IOAPIC_VECTOR_BASE + IOAPIC_GSI_COUNT;
 
     if !(IOAPIC_VECTOR_BASE..IOAPIC_VECTOR_END).contains(&vector) {
-        return;
+        return false;
     }
 
     let mut mappings = X86_IOAPIC_IRQ_MAPPINGS.lock();
     if mappings.contains_key(&vector) {
-        return;
+        return true;
     }
 
     let Ok(mut irq_line) = IrqLine::alloc_specific(vector as u8) else {
-        return;
+        return false;
     };
     // AxVisor may intentionally skip the host driver for a passthrough x86 PCI
     // device, so the host still needs an IOAPIC route to observe its INTx line.
@@ -695,9 +697,10 @@ fn register_x86_ioapic_forwarding_irq(vector: usize) {
         .unwrap()
         .map_gsi_pin_to(irq_line, gsi)
     else {
-        return;
+        return false;
     };
     mappings.insert(vector, mapped_irq);
+    true
 }
 
 #[api_impl]

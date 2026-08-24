@@ -44,13 +44,6 @@ pub fn handle_external_interrupt(vector: usize) -> bool {
     }
 
     let _guard = crate::irq::disable_local();
-    if ipi::vector() == Some(vector) && !crate::smp::has_pending_inter_processor_calls() {
-        // The guest and host share the physical IPI vector in passthrough
-        // mode.  A guest IPI has no host CALL_QUEUES entry; acknowledge it
-        // here and let AxVisor forward it to the guest vIOAPIC.
-        HwIrqLine::new(vector).ack();
-        return true;
-    }
     let trap_frame = TrapFrame {
         trap_num: vector as usize,
         ..TrapFrame::default()
