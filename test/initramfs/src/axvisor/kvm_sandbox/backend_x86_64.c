@@ -382,7 +382,7 @@ static int setup_vcpu(long vcpufd, struct vcpu_setup *setup, unsigned long entry
 	sregs->tr.base = TSS_GPA;
 	sregs->tr.limit = 103;
 	sregs->tr.selector = 0x28;
-	sregs->tr.type = 9;
+	sregs->tr.type = 11;
 	sregs->tr.present = 1;
 	sregs->tr.dpl = 0;
 	sregs->tr.s = 0;

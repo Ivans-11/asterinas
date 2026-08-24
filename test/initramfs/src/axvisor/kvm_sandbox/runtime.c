@@ -21,21 +21,26 @@ static int sandbox_run_application(struct sandbox_runner *runner,
 
 	for (;;) {
 		if (sandbox_runner_next_event(runner, backend, control, &event) != 0)
-			return sandbox_runner_abort(runner, "sandbox event loop failed\n");
+			return sandbox_fail("sandbox event loop failed\n");
 		if (sandbox_service_linux_event(runner, control, &event, backend) != 0)
-			return sandbox_runner_abort(runner, "sandbox syscall service failed\n");
+			return sandbox_fail("sandbox syscall service failed\n");
 		if (event.kind == SANDBOX_EVENT_FAULT)
-			return sandbox_runner_abort(runner, "sandbox application faulted\n");
+			return sandbox_fail("sandbox application faulted\n");
 		if (event.kind == SANDBOX_EVENT_EXIT) {
 			if (event.args[0] != 0)
-				return sandbox_runner_abort(
-					runner, "sandbox application returned a failure status\n");
+				return sandbox_fail("sandbox application returned a failure status\n");
 			break;
 		}
 	}
 
 	sandbox_print("kvm sandbox pass\n");
 	return 0;
+}
+
+static int sandbox_watchdog_finish(struct sandbox_runner *runner, int result)
+{
+	sandbox_unmap(runner->run, runner->run_mmap_size);
+	return result;
 }
 
 int sandbox_main(long host_argument_count, char *host_arguments[])
@@ -118,22 +123,27 @@ int sandbox_main(long host_argument_count, char *host_arguments[])
 		return sandbox_runner_abort(
 			&runner, "sandbox supervisor could not create child process\n");
 	if (child_pid == 0) {
+		/* The watchdog only needs the shared run page.  Release every other
+		 * inherited KVM resource before the parent starts running the guest so
+		 * wait4 does not race deferred process-exit cleanup. */
+		sandbox_close(runner.vcpu_fd);
+		sandbox_close(runner.vm_fd);
+		sandbox_close(runner.kvm_fd);
+		sandbox_unmap(runner.guest_memory, runner.guest_memory_size);
 		for (poll_count = 0; poll_count < watchdog_poll_limit; poll_count++) {
 			if (sandbox_runner_exit_requested(&runner))
-				return 0;
+				return sandbox_watchdog_finish(&runner, 0);
 			if (sandbox_sleep_milliseconds(watchdog_interval_milliseconds) != 0)
-				return 1;
+				return sandbox_watchdog_finish(&runner, 1);
 		}
 		sandbox_runner_request_exit(&runner);
-		return 0;
+		return sandbox_watchdog_finish(&runner, 0);
 	}
 
 	result = sandbox_run_application(&runner, backend, control);
-	if (result == 0)
-		sandbox_runner_request_exit(&runner);
+	sandbox_runner_request_exit(&runner);
 	if (sandbox_wait(child_pid, &status, 0) != child_pid)
 		return sandbox_fail("sandbox supervisor could not reap watchdog\n");
-	if (result == 0)
-		sandbox_runner_destroy(&runner);
+	sandbox_runner_destroy(&runner);
 	return result;
 }

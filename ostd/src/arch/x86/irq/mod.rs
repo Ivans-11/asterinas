@@ -21,7 +21,11 @@ pub(crate) use ops::{
 };
 pub(crate) use remapping::IrqRemapping;
 
-use crate::arch::{cpu, kernel};
+use crate::{
+    arch::{cpu, kernel, trap::TrapFrame},
+    cpu::PrivilegeLevel,
+    irq::call_irq_callback_functions,
+};
 
 // Intel(R) 64 and IA-32 architectures Software Developer's Manual,
 // Volume 3A, Section 6.2 says "Vector numbers in the range 32 to 255
@@ -29,6 +33,31 @@ use crate::arch::{cpu, kernel};
 // the Intel 64 and IA-32 architecture."
 pub(crate) const IRQ_NUM_MIN: u8 = 32;
 pub(crate) const IRQ_NUM_MAX: u8 = 255;
+
+/// Handles a host external interrupt reported by a hypervisor VM exit.
+pub fn handle_external_interrupt(vector: usize) -> bool {
+    let Ok(vector) = u8::try_from(vector) else {
+        return false;
+    };
+    if !(IRQ_NUM_MIN..=IRQ_NUM_MAX).contains(&vector) {
+        return false;
+    }
+
+    let _guard = crate::irq::disable_local();
+    if ipi::vector() == Some(vector) && !crate::smp::has_pending_inter_processor_calls() {
+        // The guest and host share the physical IPI vector in passthrough
+        // mode.  A guest IPI has no host CALL_QUEUES entry; acknowledge it
+        // here and let AxVisor forward it to the guest vIOAPIC.
+        HwIrqLine::new(vector).ack();
+        return true;
+    }
+    let trap_frame = TrapFrame {
+        trap_num: vector as usize,
+        ..TrapFrame::default()
+    };
+    call_irq_callback_functions(&trap_frame, &HwIrqLine::new(vector), PrivilegeLevel::Kernel);
+    true
+}
 
 /// An IRQ line with additional information that helps acknowledge the interrupt
 /// on hardware.

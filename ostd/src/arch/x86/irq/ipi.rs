@@ -23,6 +23,11 @@ impl HwCpuId {
 
 static IPI_IRQ: Once<IrqLine> = Once::new();
 
+/// Returns the host IPI vector after IPI initialization.
+pub(crate) fn vector() -> Option<u8> {
+    IPI_IRQ.get().map(IrqLine::num)
+}
+
 /// Initializes global IPI state.
 pub(in crate::arch) fn init() {
     let mut irq = IrqLine::alloc().unwrap();

@@ -226,6 +226,11 @@ long sandbox_close(long fd)
 	return syscall1(SYS_CLOSE, fd);
 }
 
+long sandbox_unmap(void *address, unsigned long length)
+{
+	return syscall2(SYS_MUNMAP, (long)address, length);
+}
+
 void sandbox_print(const char *message)
 {
 	unsigned long length = 0;

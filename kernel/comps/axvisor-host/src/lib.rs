@@ -621,6 +621,9 @@ impl control::ControlIf for ControlIfImpl {
 #[api_impl]
 impl irq::IrqIf for IrqIfImpl {
     fn handle_irq(vector: usize) -> bool {
+        #[cfg(target_arch = "x86_64")]
+        return ostd::arch::irq::handle_external_interrupt(vector);
+
         #[cfg(target_arch = "riscv64")]
         if vector == RISCV_S_SOFT_VECTOR {
             ostd::arch::irq::handle_pending_software_interrupt();
@@ -639,11 +642,14 @@ impl irq::IrqIf for IrqIfImpl {
             return true;
         }
 
-        if let Some(handler) = IRQ_HANDLERS.lock().get(&vector).copied() {
-            handler(vector);
-            return true;
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            if let Some(handler) = IRQ_HANDLERS.lock().get(&vector).copied() {
+                handler(vector);
+                return true;
+            }
+            false
         }
-        false
     }
 
     fn register_irq_handler(vector: usize, handler: irq::IrqHandler) -> bool {

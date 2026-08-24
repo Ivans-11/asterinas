@@ -269,7 +269,7 @@ impl VirtioPciModernTransport {
     ) -> Result<Self, (BusProbeError, PciCommonDevice)> {
         let device_id = common_device.device_id().device_id;
         let device_type_value = if device_id <= 0x1040 {
-            device_id - 0x1000
+            device_id - 0x1000 + 1
         } else {
             device_id - 0x1040
         };

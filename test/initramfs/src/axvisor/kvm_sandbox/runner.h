@@ -89,6 +89,7 @@ long sandbox_fork(void);
 long sandbox_wait(long pid, int *status, int nohang);
 int sandbox_sleep_milliseconds(unsigned long milliseconds);
 long sandbox_close(long fd);
+long sandbox_unmap(void *address, unsigned long length);
 void sandbox_copy(void *destination, const void *source, unsigned long length);
 void sandbox_zero(void *destination, unsigned long length);
 int sandbox_prepare_initial_stack(struct sandbox_runner *runner, long argument_count,
