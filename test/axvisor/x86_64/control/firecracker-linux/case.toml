@@ -1,11 +1,8 @@
 arch = "x86_64"
 case = "firecracker-linux"
 image = "qemu_x86_64_linux"
-payload_files = ["vmlinux", "initramfs.cpio.gz", "rootfs.img"]
+payload_files = ["firecracker-vmlinux", "initramfs.cpio.gz", "rootfs.img"]
 test_files = ["firecracker"]
-payload_extract_bzimage_elf = [
-  { source = "qemu-x86_64", output = "vmlinux" },
-]
 timeout_secs = 600
 success_regex = ["(?m)^firecracker guest test pass!\\s*$"]
 fail_regex = [
@@ -29,8 +26,8 @@ extra_qemu_args = [
 
 [[interactions]]
 expect = "~ # "
-send = "umount /ext2 2>/dev/null; (mount -t ext2 /dev/vda /ext2 || { echo firecracker payload mount failed; ls /dev; false; }) && /test/firecracker --no-api --no-seccomp --config-file /test/firecracker-x86_64.json --level Info"
+send = "mkdir -p /tmp/firecracker-net; echo firecracker-network-pass > /tmp/firecracker-net/probe; /bin/busybox httpd -f -p 172.16.0.1:8080 -h /tmp/firecracker-net & umount /ext2 2>/dev/null; (mount -t ext2 /dev/vda /ext2 || { echo firecracker payload mount failed; ls /dev; false; }) && /test/firecracker --no-api --no-seccomp --config-file /test/firecracker-x86_64.json --level Info"
 
 [[interactions]]
 expect = "~ # "
-send = "/bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); test \"$n\" -ge 4 && echo 'firecracker guest test pass!'"
+send = "/bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); /bin/busybox mkdir -p /tmp && /bin/busybox ip link set eth0 up && /bin/busybox ip addr add 172.16.0.2/24 dev eth0 && /bin/busybox wget -T 10 -q -O /tmp/network-probe http://172.16.0.1:8080/probe && /bin/busybox grep -q '^firecracker-network-pass$' /tmp/network-probe && test \"$n\" -ge 4 && echo 'firecracker guest test pass!'"

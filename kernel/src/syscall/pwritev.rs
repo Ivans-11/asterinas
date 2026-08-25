@@ -149,6 +149,15 @@ fn do_sys_writev(
 
     let user_space = ctx.user_space();
     let mut reader_array = VmReaderArray::from_user_io_vecs(&user_space, io_vec_ptr, io_vec_count)?;
+
+    if let Some(result) = file.write_vectored(&mut reader_array) {
+        let write_len = result?;
+        if write_len > 0 {
+            fs::vfs::notify::on_modify(&file);
+        }
+        return Ok(write_len);
+    }
+
     for reader in reader_array.readers_mut() {
         debug_assert!(reader.has_remain());
 

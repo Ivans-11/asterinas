@@ -24,7 +24,7 @@ use crate::{
     },
     prelude::*,
     process::signal::{PollHandle, Pollable},
-    util::ioctl::RawIoctl,
+    util::{MultiRead, ioctl::RawIoctl},
 };
 
 pub struct InodeHandle {
@@ -302,6 +302,18 @@ impl FileLike for InodeHandle {
         Ok(len)
     }
 
+    fn write_vectored(&self, reader: &mut dyn MultiRead) -> Option<Result<usize>> {
+        if !self.rights.contains(Rights::WRITE) {
+            return Some(Err(Error::with_message(
+                Errno::EBADF,
+                "the file is not opened writable",
+            )));
+        }
+
+        let open_file = self.open_file.as_ref()?;
+        open_file.write_vectored(reader, self.status_flags())
+    }
+
     fn read_at(&self, offset: usize, writer: &mut VmWriter) -> Result<usize> {
         let file_ops = self.file_ops_for_positional_io()?;
         if !self.rights.contains(Rights::READ) {
@@ -532,6 +544,17 @@ pub enum SeekFrom {
 /// operations that are not purely inode-backed, such as state and operations for
 /// devices, pipes, namespace files, and procfs files.
 pub trait PerOpenFileOps: Pollable + FileOps + Any + Send + Sync + 'static {
+    /// Handles a vectored write as one logical record.
+    ///
+    /// The default leaves stream/regular-file behavior to the syscall layer.
+    fn write_vectored(
+        &self,
+        _reader: &mut dyn MultiRead,
+        _status_flags: StatusFlags,
+    ) -> Option<Result<usize>> {
+        None
+    }
+
     /// Checks whether the `seek()` operation should fail.
     fn check_seekable(&self) -> Result<()>;
 

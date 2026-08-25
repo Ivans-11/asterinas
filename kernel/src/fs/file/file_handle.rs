@@ -14,7 +14,7 @@ use crate::{
     net::socket::Socket,
     prelude::*,
     process::signal::Pollable,
-    util::ioctl::RawIoctl,
+    util::{MultiRead, ioctl::RawIoctl},
     vm::page_cache::Vmo,
 };
 
@@ -62,6 +62,15 @@ pub trait FileLike: Pollable + Send + Sync + Any {
             return_errno_with_message!(Errno::EBADF, "the file is not opened for writing");
         }
         return_errno_with_message!(Errno::EINVAL, "write is not supported for this file type");
+    }
+
+    /// Writes one logical record assembled from multiple buffers.
+    ///
+    /// Record-oriented files can override this method to preserve `writev(2)`
+    /// boundaries. Stream and regular files use the scalar-write fallback in
+    /// the syscall layer.
+    fn write_vectored(&self, _reader: &mut dyn MultiRead) -> Option<Result<usize>> {
+        None
     }
 
     /// Read at the given file offset.

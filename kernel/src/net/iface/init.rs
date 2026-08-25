@@ -22,7 +22,20 @@ pub fn loopback_iface() -> &'static Arc<Iface> {
 }
 
 pub fn virtio_iface() -> Option<&'static Arc<Iface>> {
-    IFACES.get().unwrap().get(1)
+    IFACES
+        .get()
+        .unwrap()
+        .iter()
+        .find(|iface| iface.name().to_bytes() == b"eth0")
+}
+
+pub fn tap_iface() -> &'static Arc<Iface> {
+    IFACES
+        .get()
+        .unwrap()
+        .iter()
+        .find(|iface| iface.name().to_bytes() == b"tap0")
+        .unwrap()
 }
 
 pub fn iter_all_ifaces() -> Iter<'static, Arc<Iface>> {
@@ -34,7 +47,7 @@ const VIRTIO_DEVICE_NAME: &str = aster_virtio::device::network::DEVICE_NAME;
 
 pub fn init() {
     IFACES.call_once(|| {
-        let mut ifaces = Vec::with_capacity(2);
+        let mut ifaces = Vec::with_capacity(3);
 
         // Initialize loopback before virtio
         // to ensure the loopback interface index is ahead of virtio.
@@ -43,6 +56,8 @@ pub fn init() {
         if let Some(iface_virtio) = new_virtio() {
             ifaces.push(iface_virtio);
         }
+
+        ifaces.push(new_tap());
 
         ifaces
     });
@@ -56,6 +71,33 @@ pub fn init() {
     broadcast::init();
 
     poll_ifaces();
+}
+
+fn new_tap() -> Arc<Iface> {
+    use aster_bigtcp::{
+        iface::EtherIface,
+        wire::{EthernetAddress, Ipv4Address, Ipv4Cidr},
+    };
+
+    const TAP_ADDRESS: Ipv4Address = Ipv4Address::new(172, 16, 0, 1);
+    const TAP_ADDRESS_PREFIX_LEN: u8 = 24;
+    const TAP_GATEWAY: Ipv4Address = Ipv4Address::new(172, 16, 0, 2);
+
+    let flags = InterfaceFlags::UP
+        | InterfaceFlags::BROADCAST
+        | InterfaceFlags::RUNNING
+        | InterfaceFlags::MULTICAST
+        | InterfaceFlags::LOWER_UP;
+
+    EtherIface::new(
+        crate::device::misc::tun::network_driver(),
+        EthernetAddress(crate::device::misc::tun::mac_addr()),
+        Ipv4Cidr::new(TAP_ADDRESS, TAP_ADDRESS_PREFIX_LEN),
+        TAP_GATEWAY,
+        CString::new("tap0").unwrap(),
+        PollScheduler::new(),
+        flags,
+    )
 }
 
 fn new_loopback() -> Arc<Iface> {

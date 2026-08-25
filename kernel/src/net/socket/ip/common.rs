@@ -39,6 +39,20 @@ fn get_ephemeral_iface(remote_ip_addr: &IpAddress) -> Arc<Iface> {
                 return iface.clone();
             }
 
+            // Prefer an interface whose directly connected subnet contains the destination.
+            // This is required for virtual interfaces such as TAP and is also more faithful to
+            // normal route selection than always falling back to the first physical interface.
+            if let Some(iface) = iter_all_ifaces().find(|iface| {
+                let (Some(local_addr), Some(prefix_len)) = (iface.ipv4_addr(), iface.prefix_len())
+                else {
+                    return false;
+                };
+                aster_bigtcp::wire::Ipv4Cidr::new(local_addr, prefix_len)
+                    .contains_addr(remote_ipv4_addr)
+            }) {
+                return iface.clone();
+            }
+
             // FIXME: Instead of hardcoding the rules here, we should choose the
             // default interface according to the routing table.
             if let Some(virtio_iface) = virtio_iface() {
