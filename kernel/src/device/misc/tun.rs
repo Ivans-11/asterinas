@@ -45,10 +45,13 @@ const SUPPORTED_IFF_FLAGS: u16 = IFF_TAP | IFF_NO_PI | IFF_VNET_HDR;
 
 // _IOW('T', nr, int), as defined by Linux's <linux/if_tun.h>.
 const TUNSETIFF: u32 = 0x4004_54ca;
+// _IOR('T', nr, unsigned int), as defined by Linux's <linux/if_tun.h>.
+const TUNGETFEATURES: u32 = 0x8004_54cf;
 const TUNSETOFFLOAD: u32 = 0x4004_54d0;
 const TUNSETVNETHDRSZ: u32 = 0x4004_54d8;
 
 const DEFAULT_VNET_HDR_SIZE: usize = 12;
+const SUPPORTED_VNET_HDR_SIZES: [usize; 2] = [10, 12];
 const MAX_PACKET_SIZE: usize = 65_562;
 const MAX_QUEUED_PACKETS: usize = 1024;
 const TAP_NAME: &[u8] = b"tap0";
@@ -352,7 +355,7 @@ impl TunFile {
         let mut bytes = [0u8; size_of::<i32>()];
         current_userspace!().read_bytes(arg, &mut bytes)?;
         let size = i32::from_ne_bytes(bytes);
-        if size != DEFAULT_VNET_HDR_SIZE as i32 {
+        if size < 0 || !SUPPORTED_VNET_HDR_SIZES.contains(&(size as usize)) {
             return_errno_with_message!(Errno::EINVAL, "unsupported vnet header size");
         }
         self.state
@@ -366,6 +369,11 @@ impl TunFile {
         self.state
             .offload_flags
             .store(flags as u32, Ordering::Release);
+        Ok(0)
+    }
+
+    fn get_features(&self, arg: usize) -> Result<i32> {
+        current_userspace!().write_val(arg, &(SUPPORTED_IFF_FLAGS as u32))?;
         Ok(0)
     }
 
@@ -444,7 +452,6 @@ impl FileOps for TunFile {
                 .read_wait_queue
                 .wait_until(|| self.state.dequeue_to_userspace())
         };
-
         let copied =
             writer.write_fallible(&mut packet[..writer.avail().min(packet.len())].into())?;
         // A read frees queue space and may allow the host stack to transmit another frame.
@@ -482,6 +489,7 @@ impl PerOpenFileOps for TunFile {
     fn ioctl(&self, raw_ioctl: RawIoctl) -> Result<i32> {
         match raw_ioctl.cmd() {
             TUNSETIFF => self.set_iff(raw_ioctl.arg()),
+            TUNGETFEATURES => self.get_features(raw_ioctl.arg()),
             TUNSETVNETHDRSZ => self.set_vnet_hdr_size(raw_ioctl.arg()),
             TUNSETOFFLOAD => self.set_offload(raw_ioctl.arg()),
             _ => return_errno_with_message!(Errno::ENOTTY, "unsupported TUN/TAP ioctl"),

@@ -21,8 +21,12 @@ extra_qemu_args = [
 
 [[interactions]]
 expect = "~ # "
-send = "umount /ext2 2>/dev/null; mount -t ext2 /dev/vda /ext2 && /test/lkvm run --dev /dev/kvm --nodefaults --console serial --tty 1 --tty 2 --tty 3 --virtio-transport mmio --network mode=none --disable-ssaia -c 4 -m 256M -k /ext2/qemu-riscv64 -i /ext2/initramfs.cpio.gz -d /ext2/rootfs.img -p 'earlycon=sbi console=ttyS0,115200 init=/init root=/dev/vda rw'"
+send = "mkdir -p /tmp/l; echo lkvm-network-pass > /tmp/l/probe; httpd -f -p 172.16.0.1:8080 -h /tmp/l & (sleep 5; while true; do echo virtio-udp-pass | nc -u -s 172.16.0.1 -w 1 172.16.0.2 9000; sleep 1; done) & umount /ext2 2>/dev/null; mount -t ext2 /dev/vda /ext2"
 
 [[interactions]]
 expect = "~ # "
-send = "/bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); test \"$n\" -ge 4 && echo 'guest test pass!'"
+send = "/test/lkvm run --dev /dev/kvm --nodefaults --console serial --tty 1 --tty 2 --tty 3 --virtio-transport mmio --network mode=tap,tapif=tap0 --disable-ssaia -c 4 -m 256M -k /ext2/qemu-riscv64 -i /ext2/initramfs.cpio.gz -d /ext2/rootfs.img -p 'earlycon=sbi console=ttyS0,115200 init=/init root=/dev/vda rw'"
+
+[[interactions]]
+expect = "~ # "
+send = "mount -t proc proc /proc 2>/dev/null || true; n=$(grep -c '^processor' /proc/cpuinfo); mkdir -p /tmp; ip link set eth0 up; ip addr add 172.16.0.2/24 dev eth0; rm -f /tmp/u; nc -u -l -p 9000 -s 172.16.0.2 -w 30 > /tmp/u & p=$!; wget -T 10 -q -O /tmp/t http://172.16.0.1:8080/probe && grep -q '^lkvm-network-pass$' /tmp/t && wait \"$p\" && grep -q '^virtio-udp-pass$' /tmp/u && test \"$n\" -ge 4 && echo 'guest test pass!'"

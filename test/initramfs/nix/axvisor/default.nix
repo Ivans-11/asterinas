@@ -16,6 +16,8 @@ let
     "unknown Axvisor test file(s): ${lib.concatStringsSep ", " unknownTestFiles}";
   kvmSmoke = callPackage ./kvm-smoke.nix { };
   kvmSandbox = callPackage ./kvm-sandbox.nix { };
+  gvisorNet = callPackage ./gvisor-net.nix { };
+  virtioNetPeer = callPackage ./virtio-net-peer.nix { };
   lkvm = callPackage ./lkvm.nix { };
   firecrackerX86Config = builtins.path {
     path = ./../../src/axvisor/firecracker_x86_64.json;
@@ -75,6 +77,7 @@ let
       "linuxboot_dma.bin"
       "linuxboot.bin"
       "kvmvapic.bin"
+      "pvh.bin"
     ];
   qemuX86Firmware = stdenvNoCC.mkDerivation {
     pname = "qemu-x86-test-firmware";
@@ -89,12 +92,20 @@ let
       done
     '';
   };
-  qemuTestFiles = [ qemuTestFile ] ++ lib.optionals (targetArch == "x86_64")
-    (map (firmware: {
+  qemuTestFiles = [ qemuTestFile ] ++ lib.optionals (targetArch == "x86_64") (
+    [
+      {
+        package = virtioNetPeer;
+        source = "${virtioNetPeer}/bin/virtio_net_peer";
+        target = "virtio_net_peer";
+      }
+    ]
+    ++ map (firmware: {
       package = qemuX86Firmware;
       source = "${qemuX86Firmware}/${firmware}";
       target = firmware;
-    }) qemuX86FirmwareNames);
+    }) qemuX86FirmwareNames
+  );
   commonTestFiles = lib.optionals (hasTest "kvm_smoke") [
     {
       package = kvmSmoke;
@@ -165,6 +176,11 @@ let
         package = runsc;
         source = "${runsc}/bin/runsc";
         target = "runsc";
+      }
+      {
+        package = gvisorNet;
+        source = "${gvisorNet}/bin/gvisor_net_test";
+        target = "gvisor_net_test";
       }
     ]
       ++ lib.optionals hasFirecrackerX86_64 [

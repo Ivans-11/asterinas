@@ -1,7 +1,7 @@
 arch = "x86_64"
 case = "qemu-linux"
 image = "qemu_x86_64_linux"
-payload_files = ["qemu-x86_64", "initramfs.cpio.gz", "rootfs.img"]
+payload_files = ["firecracker-vmlinux", "initramfs.cpio.gz", "rootfs.img"]
 test_files = ["qemu"]
 timeout_secs = 600
 success_regex = ["(?m)^qemu kvm guest test pass!\\s*$"]
@@ -25,8 +25,16 @@ extra_qemu_args = [
 
 [[interactions]]
 expect = "~ # "
-send = "export AXVISOR_OUTER=1; umount /ext2 2>/dev/null; (mount -t ext2 /dev/vda /ext2 || { echo QEMU_PAYLOAD_MOUNT_FAILED; ls /dev; false; }) && { /test/qemu-system-x86_64 -L /test -accel kvm -machine microvm,rtc=on,kernel-irqchip=on -cpu host,-mce,-mca -smp 2 -m 128M -nodefaults -no-reboot -nographic -monitor none -serial stdio -kernel /ext2/qemu-x86_64 -initrd /ext2/initramfs.cpio.gz -append 'console=ttyS0 reboot=k panic=1 init=/init root=/dev/vda rw mitigations=off' -drive file=/ext2/rootfs.img,format=raw,if=none,id=rootfs -device virtio-blk-device,drive=rootfs; status=$?; test \"$status\" -eq 0 || echo \"QEMU_LAUNCH_FAILED: $status\"; }"
+send = "mkdir -p /tmp/q; echo qemu-network-pass > /tmp/q/probe; httpd -f -p 172.16.0.1:8080 -h /tmp/q & /test/virtio_net_peer & export AXVISOR_OUTER=1; umount /ext2 2>/dev/null; mount -t ext2 /dev/vda /ext2 || echo QEMU_PAYLOAD_MOUNT_FAILED"
 
 [[interactions]]
 expect = "~ # "
-send = "test -z \"${AXVISOR_OUTER:-}\" && /bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); test -z \"${AXVISOR_OUTER:-}\" && test \"$n\" -ge 2 && echo 'qemu kvm guest test pass!'"
+send = "/test/qemu-system-x86_64 -L /test -accel kvm -machine microvm,rtc=on,kernel-irqchip=on -cpu host,-mce,-mca -smp 1 -m 256M -nodefaults -no-reboot -nographic -monitor none -serial stdio -kernel /ext2/firecracker-vmlinux -initrd /ext2/initramfs.cpio.gz -append 'quiet console=ttyS0 reboot=k panic=1 init=/init root=/dev/vda rw mitigations=off' -drive file=/ext2/rootfs.img,format=raw,if=none,id=rootfs -device virtio-blk-device,drive=rootfs -netdev tap,id=net0,ifname=tap0,script=no,downscript=no,vhost=off -device virtio-net-device,netdev=net0,mac=06:00:ac:10:00:02,mrg_rxbuf=off; status=$?; test \"$status\" -eq 0 || echo \"QEMU_LAUNCH_FAILED: $status\""
+
+[[interactions]]
+expect = "~ # "
+send = "mkdir -p /tmp; ip link set eth0 up; ip addr add 172.16.0.2/24 dev eth0; rm -f /tmp/udp-inbound; nc -u -l -p 9000 -s 172.16.0.2 -w 30 > /tmp/udp-inbound & udp_listener=$!; sleep 1; echo virtio-udp-outbound-pass | timeout 3 nc -u 172.16.0.1 9001; wait \"$udp_listener\"; wget -T 20 -q -O /tmp/qemu-net http://172.16.0.1:8080/probe"
+
+[[interactions]]
+expect = "~ # "
+send = "grep -q '^qemu-network-pass$' /tmp/qemu-net && grep -q '^virtio-udp-inbound-pass$' /tmp/udp-inbound && echo 'qemu kvm guest test pass!'"

@@ -24,8 +24,12 @@ extra_qemu_args = [
 
 [[interactions]]
 expect = "~ # "
-send = "export AXVISOR_OUTER=1; umount /ext2 2>/dev/null; (mount -t ext2 /dev/vda /ext2 || { echo QEMU_PAYLOAD_MOUNT_FAILED; ls /dev; false; }) && { /test/qemu-system-riscv64 -accel kvm -machine virt,aia=none -cpu host -smp 2 -m 256M -nodefaults -no-reboot -nographic -monitor none -serial stdio -kernel /ext2/qemu-riscv64 -initrd /ext2/initramfs.cpio.gz -append 'earlycon=sbi console=ttyS0,115200 reboot=k panic=1 init=/init root=/dev/vda rw' -drive file=/ext2/rootfs.img,format=raw,if=none,id=rootfs -device virtio-blk-device,drive=rootfs; status=$?; test \"$status\" -eq 0 || echo \"QEMU_LAUNCH_FAILED: $status\"; }"
+send = "mkdir -p /tmp/q; echo qemu-network-pass > /tmp/q/probe; httpd -f -p 172.16.0.1:8080 -h /tmp/q & (sleep 5; while true; do echo virtio-udp-pass | nc -u -s 172.16.0.1 -w 1 172.16.0.2 9000; sleep 1; done) & export AXVISOR_OUTER=1; umount /ext2 2>/dev/null; mount -t ext2 /dev/vda /ext2 || echo QEMU_PAYLOAD_MOUNT_FAILED"
 
 [[interactions]]
 expect = "~ # "
-send = "test -z \"${AXVISOR_OUTER:-}\" && /bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); test -z \"${AXVISOR_OUTER:-}\" && test \"$n\" -ge 2 && echo 'qemu kvm guest test pass!'"
+send = "/test/qemu-system-riscv64 -accel kvm -machine virt,aia=none -cpu host -smp 2 -m 256M -nodefaults -no-reboot -nographic -monitor none -serial stdio -kernel /ext2/qemu-riscv64 -initrd /ext2/initramfs.cpio.gz -append 'earlycon=sbi console=ttyS0,115200 reboot=k panic=1 init=/init root=/dev/vda rw' -drive file=/ext2/rootfs.img,format=raw,if=none,id=rootfs -device virtio-blk-device,drive=rootfs -netdev tap,id=net0,ifname=tap0,script=no,downscript=no,vhost=off -device virtio-net-device,netdev=net0,mac=06:00:ac:10:00:02; status=$?; test \"$status\" -eq 0 || echo \"QEMU_LAUNCH_FAILED: $status\""
+
+[[interactions]]
+expect = "~ # "
+send = "test -z \"${AXVISOR_OUTER:-}\" && { mount -t proc proc /proc 2>/dev/null || true; n=$(grep -c '^processor' /proc/cpuinfo); mkdir -p /tmp; ip link set eth0 up; ip addr add 172.16.0.2/24 dev eth0; rm -f /tmp/u; nc -u -l -p 9000 -s 172.16.0.2 -w 30 > /tmp/u & p=$!; wget -T 10 -q -O /tmp/t http://172.16.0.1:8080/probe && grep -q '^qemu-network-pass$' /tmp/t && wait \"$p\" && grep -q '^virtio-udp-pass$' /tmp/u && test \"$n\" -ge 2 && echo 'qemu kvm guest test pass!'; }"
