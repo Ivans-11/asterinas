@@ -215,7 +215,13 @@ impl Socket for DatagramSocket {
         }
 
         // TODO: Block if the send buffer is full
-        self.try_send(reader, endpoint.as_ref(), flags)
+        if flags.contains(SendRecvFlags::MSG_DONTWAIT) {
+            self.try_send(reader, endpoint.as_ref(), flags)
+        } else {
+            self.block_on(IoEvents::OUT, || {
+                self.try_send(reader, endpoint.as_ref(), flags)
+            })
+        }
     }
 
     fn recvmsg(
@@ -228,8 +234,11 @@ impl Socket for DatagramSocket {
             warn!("unsupported flags: {:?}", flags);
         }
 
-        let (received_bytes, peer_addr) =
-            self.block_on(IoEvents::IN, || self.try_recv(writer, flags))?;
+        let (received_bytes, peer_addr) = if flags.contains(SendRecvFlags::MSG_DONTWAIT) {
+            self.try_recv(writer, flags)?
+        } else {
+            self.block_on(IoEvents::IN, || self.try_recv(writer, flags))?
+        };
 
         // TODO: Receive control message
 

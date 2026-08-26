@@ -37,7 +37,12 @@ bitflags! {
 
 impl SendRecvFlags {
     fn supported_flags() -> Self {
-        SendRecvFlags::empty()
+        // These flags are handled by the socket layer or are advisory for the
+        // protocol implementation. Applications commonly pass them to
+        // sendmsg/recvmsg on Linux-compatible sockets.
+        SendRecvFlags::MSG_TRUNC
+            .union(SendRecvFlags::MSG_DONTWAIT)
+            .union(SendRecvFlags::MSG_NOSIGNAL)
     }
 
     pub fn is_all_supported(&self) -> bool {
