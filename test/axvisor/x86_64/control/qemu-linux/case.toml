@@ -33,7 +33,7 @@ send = "/test/qemu-system-x86_64 -L /test -accel kvm -machine microvm,rtc=on,ker
 
 [[interactions]]
 expect = "~ # "
-send = "mkdir -p /tmp; ip link set eth0 up; ip addr add 172.16.0.2/24 dev eth0; rm -f /tmp/udp-inbound; nc -u -l -p 9000 -s 172.16.0.2 -w 30 > /tmp/udp-inbound & udp_listener=$!; sleep 1; echo virtio-udp-outbound-pass | timeout 3 nc -u 172.16.0.1 9001; wait \"$udp_listener\"; wget -T 20 -q -O /tmp/qemu-net http://172.16.0.1:8080/probe"
+send = "mkdir -p /tmp; ip link set eth0 up; ip addr add 172.16.0.2/24 dev eth0; rm -f /tmp/udp-inbound; nc -u -l -p 9000 -s 172.16.0.2 -w 5 > /tmp/udp-inbound & udp_listener=$!; sleep 1; echo virtio-udp-outbound-pass | timeout 3 nc -u 172.16.0.1 9001; wait \"$udp_listener\"; wget -T 20 -q -O /tmp/qemu-net http://172.16.0.1:8080/probe"
 
 [[interactions]]
 expect = "~ # "
