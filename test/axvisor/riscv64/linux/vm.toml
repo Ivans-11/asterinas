@@ -31,11 +31,13 @@ interrupt_mode = "passthrough"
 passthrough_devices = [
   ["/soc/serial@10000000"],
   ["/soc/virtio_mmio@10008000"],
+  ["/soc/virtio_mmio@10007000"],
 ]
 
 passthrough_addresses = [
   [0x1000_0000, 0x100],   # ns16550a guest console
   [0x1000_8000, 0x1000],  # virtio-mmio guest rootfs
+  [0x1000_7000, 0x1000],  # virtio-mmio guest network
 ]
 
 excluded_devices = []

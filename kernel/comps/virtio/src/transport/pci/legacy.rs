@@ -94,19 +94,24 @@ impl VirtioPciLegacyTransport {
         };
         info!("Found device: {:?}", device_type);
 
-        let config_bar = common_device
-            .bar_manager_mut()
-            .bar_mut(0)
-            .unwrap()
-            .acquire()
-            .unwrap();
+        let Some(config_bar) = common_device.bar_manager_mut().bar_mut(0) else {
+            return Err((BusProbeError::ConfigurationSpaceError, common_device));
+        };
+        let Ok(config_bar) = config_bar.acquire() else {
+            return Err((BusProbeError::ConfigurationSpaceError, common_device));
+        };
 
         let mut num_queues = 0u16;
         while num_queues < u16::MAX {
-            config_bar
+            if config_bar
                 .write_once(QUEUE_SELECT_OFFSET, num_queues)
-                .unwrap();
-            let queue_size = config_bar.read_once::<u16>(QUEUE_SIZE_OFFSET).unwrap();
+                .is_err()
+            {
+                return Err((BusProbeError::ConfigurationSpaceError, common_device));
+            }
+            let Ok(queue_size) = config_bar.read_once::<u16>(QUEUE_SIZE_OFFSET) else {
+                return Err((BusProbeError::ConfigurationSpaceError, common_device));
+            };
             if queue_size == 0 {
                 break;
             }

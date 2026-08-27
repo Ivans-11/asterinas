@@ -10,12 +10,16 @@ fail_regex = [
   "(?i)permission denied",
 ]
 shell_prompt = "~ # "
-shell_init_cmd = "/bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); test \"$n\" -ge 4 && echo 'guest linux test pass!'"
+shell_init_cmd = "/bin/busybox mount -t proc proc /proc 2>/dev/null || true; n=$(/bin/busybox grep -c '^processor' /proc/cpuinfo); /bin/busybox ip link set eth0 up && /bin/busybox ip addr add 10.0.2.15/24 dev eth0 && /bin/busybox ping -c 3 -W 3 10.0.2.2 && test \"$n\" -ge 4 && echo 'guest linux test pass!'"
 extra_qemu_args = [
   "-smp",
   "2",
   "-device",
-  "virtio-blk-pci,drive=disk0,addr=03.0",
+  "virtio-blk-pci,drive=disk0,addr=03.0,disable-modern=on",
   "-drive",
   "id=disk0,if=none,format=raw,file={guest_dir}/rootfs.img",
+  "-netdev",
+  "user,id=axvisor_guest_net",
+  "-device",
+  "virtio-net-pci,netdev=axvisor_guest_net,addr=04.0,disable-modern=on,romfile=,mac=06:00:ac:10:00:02",
 ]
