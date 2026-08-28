@@ -15,19 +15,32 @@ pub fn prepare_initramfs(
     workspace_root: &Path,
     arch: Arch,
     test_files: &[String],
+    enable_benchmark_test: bool,
 ) -> Result<PathBuf> {
     let test_dir = workspace_root.join("test/initramfs");
     let build_dir = test_dir.join("build");
     let initramfs_link = build_dir.join(arch.as_str()).join("initramfs.cpio.gz");
 
     let mut build = Command::new("make");
+    // Keep the workload selector independent from whether benchmark tools are
+    // packaged.  Control cases run benchmark programs from guest userspace,
+    // while BENCHMARK=none prevents the kernel benchmark workload from being
+    // started automatically.
+    let benchmark = env::var("AXVISOR_BENCHMARK").unwrap_or_else(|_| "none".to_string());
     build
         .current_dir(&test_dir)
         .arg(format!("TARGET_ARCH={}", arch.as_str()))
         .arg(format!("AXVISOR_TEST_FILES={}", test_files.join(",")))
-        .arg("BENCHMARK=none")
-        .arg("build")
+        .arg(format!("BENCHMARK={benchmark}"))
         .stdin(Stdio::null());
+    // `ENABLE_BENCHMARK_TEST` is the existing initramfs switch.  Its value is
+    // supplied by the caller (the control runner enables it for its host-side
+    // benchmark payloads); it is deliberately not inferred from `test_files`
+    // or tied to a particular test such as Firecracker.
+    if enable_benchmark_test {
+        build.arg("ENABLE_BENCHMARK_TEST=true");
+    }
+    build.arg("build");
     if let Some(path) = augmented_path()? {
         build.env("PATH", path);
     }

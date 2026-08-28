@@ -1,0 +1,11 @@
+# Optional single-file payload artifacts.
+#
+# Control cases reference labels from this table through
+# `payload_downloads = ["label"]`. Every entry must use an immutable source
+# (or a pinned release URL) and a SHA256 checksum.
+
+[downloads]
+
+[downloads.firecracker-vmlinux]
+url = "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.12/x86_64/vmlinux-5.10.233"
+sha256 = "3a30d91f3bf475e3950b9825d047c6839bc64249f383f6173912fe8afe89b5c3"

@@ -317,7 +317,7 @@ fn run_command(workspace: &Workspace, args: RunArgs) -> Result<()> {
     fs::create_dir_all(&workspace.target_dir)
         .with_context(|| format!("failed to create {}", workspace.target_dir.display()))?;
     let arch = resolve_run_arch(workspace, &args)?;
-    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch, &[])?;
+    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch, &[], false)?;
     let staged_case = match args.guest.as_deref() {
         Some(guest) => Some(stage_case(workspace, args.arch, guest)?),
         None => None,
@@ -395,8 +395,12 @@ fn test_command(workspace: &Workspace, args: TestArgs) -> Result<()> {
         features: staged_case.features.clone(),
         rendered_qemu_args: staged_case.rendered_qemu_args.clone(),
     };
-    let initramfs =
-        initramfs::prepare_initramfs(&workspace.root, staged_case.loaded.manifest.arch, &[])?;
+    let initramfs = initramfs::prepare_initramfs(
+        &workspace.root,
+        staged_case.loaded.manifest.arch,
+        &[],
+        false,
+    )?;
     let mut build = build_osdk_command(
         workspace,
         staged_case.loaded.manifest.arch,
@@ -437,7 +441,7 @@ fn test_off_mode(workspace: &Workspace, args: TestArgs) -> Result<()> {
     }
 
     let arch = args.arch.unwrap_or_default();
-    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch, &[])?;
+    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch, &[], false)?;
     let host_launch = case::resolve_host(&workspace.root, arch)?
         .map(|host| stage_host_launch(arch, host))
         .transpose()?
@@ -545,8 +549,8 @@ fn stage_case(workspace: &Workspace, arch: Option<Arch>, guest: &str) -> Result<
 }
 
 fn load_passthrough_mmio_kcmd_args(vmconfig: &Path) -> Result<Vec<String>> {
-    let text =
-        fs::read_to_string(vmconfig).with_context(|| format!("failed to read {}", vmconfig.display()))?;
+    let text = fs::read_to_string(vmconfig)
+        .with_context(|| format!("failed to read {}", vmconfig.display()))?;
     let config: AxvisorVmConfig =
         toml::from_str(&text).with_context(|| format!("failed to parse {}", vmconfig.display()))?;
     Ok(config

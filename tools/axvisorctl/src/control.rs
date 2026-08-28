@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -44,6 +45,28 @@ pub struct CaseManifest {
     pub extra_qemu_args: Vec<String>,
     #[serde(default)]
     pub test_files: Vec<String>,
+    /// Additional payload files downloaded from pinned external sources.
+    #[serde(default)]
+    pub payload_downloads: Vec<String>,
+    /// Include the existing benchmark tool package in the initramfs.
+    #[serde(default)]
+    pub enable_benchmark_test: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PayloadDownloadSpec {
+    pub url: String,
+    pub sha256: String,
+    /// Optional relative path in the generated payload image. Defaults to
+    /// the catalog label.
+    #[serde(default)]
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct PayloadDownloadCatalog {
+    #[serde(default)]
+    downloads: BTreeMap<String, PayloadDownloadSpec>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -81,6 +104,12 @@ pub struct StagedCase {
     pub rendered_qemu_args: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+struct StagedDownload {
+    target: String,
+    path: PathBuf,
+}
+
 pub fn test(workspace: &Workspace, args: TestArgs) -> Result<()> {
     if args.guest.is_some() {
         bail!("--guest is only supported for static Axvisor tests");
@@ -88,17 +117,22 @@ pub fn test(workspace: &Workspace, args: TestArgs) -> Result<()> {
 
     let arch = args.arch.unwrap_or_default();
     let case_name = args.case.as_deref().unwrap_or("smoke");
+    // Build the initramfs first. Control payloads may require binaries
+    // produced by this exact build; expose files declared by the case to
+    // payload staging instead of relying on a stale image-store bundle.
+    let preload = resolve_case(&workspace.root, arch, case_name)?;
+    let initramfs = initramfs::prepare_initramfs(
+        &workspace.root,
+        arch,
+        &preload.manifest.test_files,
+        preload.manifest.enable_benchmark_test,
+    )?;
     let staged_case = stage(
         &workspace.root,
         &workspace.images_dir,
         &workspace.case_stage_root,
         arch,
         case_name,
-    )?;
-    let initramfs = initramfs::prepare_initramfs(
-        &workspace.root,
-        arch,
-        &staged_case.loaded.manifest.test_files,
     )?;
     let host_launch = HostLaunchConfig {
         scheme: staged_case.scheme.clone(),
@@ -147,15 +181,37 @@ pub fn stage(
     name: &str,
 ) -> Result<StagedCase> {
     let loaded = resolve_case(workspace_root, arch, name)?;
+    let image_store = ImageStore::new(images_dir.to_path_buf())?;
     let image_dir = loaded
         .manifest
         .image
         .as_deref()
-        .map(|image| ImageStore::new(images_dir.to_path_buf())?.ensure_image(image))
+        .map(|image| image_store.ensure_image(image))
         .transpose()?;
+    let catalog = load_payload_download_catalog(workspace_root)?;
+    let downloads = loaded
+        .manifest
+        .payload_downloads
+        .iter()
+        .map(|label| {
+            let artifact = catalog.downloads.get(label).ok_or_else(|| {
+                anyhow!(
+                    "payload download `{label}` is not defined in {}",
+                    workspace_root
+                        .join("test/axvisor/payload-downloads.toml")
+                        .display()
+                )
+            })?;
+            let target = artifact.target.clone().unwrap_or_else(|| label.clone());
+            Ok(StagedDownload {
+                target,
+                path: image_store.ensure_download(label, &artifact.url, &artifact.sha256)?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
     let payload_image = image_dir
         .as_deref()
-        .map(|image_dir| build_payload_image(case_stage_root, &loaded, image_dir))
+        .map(|image_dir| build_payload_image(case_stage_root, &loaded, image_dir, &downloads))
         .transpose()?;
     let mut features = merge_features(
         &loaded.host.manifest.features,
@@ -186,6 +242,16 @@ pub fn stage(
         rendered_qemu_args,
         loaded,
     })
+}
+
+fn load_payload_download_catalog(workspace_root: &Path) -> Result<PayloadDownloadCatalog> {
+    let path = workspace_root.join("test/axvisor/payload-downloads.toml");
+    if !path.is_file() {
+        return Ok(PayloadDownloadCatalog::default());
+    }
+    let text =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    toml::from_str(&text).with_context(|| format!("failed to parse {}", path.display()))
 }
 
 pub fn build_harness(logs_dir: &Path, staged_case: &StagedCase) -> Result<TestHarness> {
@@ -224,6 +290,7 @@ fn build_payload_image(
     case_stage_root: &Path,
     loaded: &LoadedCase,
     image_dir: &Path,
+    downloads: &[StagedDownload],
 ) -> Result<PathBuf> {
     let case_dir = case_stage_root.join(loaded.key());
     let payload_dir = case_dir.join("payload");
@@ -234,6 +301,41 @@ fn build_payload_image(
     fs::create_dir_all(&payload_dir)
         .with_context(|| format!("failed to create {}", payload_dir.display()))?;
     copy_dir_contents(image_dir, &payload_dir)?;
+    // A control case may provide small, case-specific payload assets (for
+    // example a benchmark configuration) under `payload/`.  Keep these
+    // assets in the generated ext2 image alongside files copied from the
+    // named image store.
+    let case_payload_dir = loaded.dir.join("payload");
+    if case_payload_dir.is_dir() {
+        copy_dir_contents(&case_payload_dir, &payload_dir)?;
+    }
+    for download in downloads {
+        let target = payload_dir.join(&download.target);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(&download.path, &target).with_context(|| {
+            format!(
+                "failed to stage downloaded payload {} as {}",
+                download.path.display(),
+                target.display()
+            )
+        })?;
+    }
+    let missing = loaded
+        .manifest
+        .payload_files
+        .iter()
+        .filter(|name| !payload_dir.join(name).is_file())
+        .cloned()
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        bail!(
+            "control payload `{}` is missing required files: {}",
+            loaded.key(),
+            missing.join(", ")
+        );
+    }
     extract_payload_bzimage_elfs(&payload_dir, &loaded.manifest.payload_extract_bzimage_elf)?;
 
     let image_path = case_dir.join("payload.ext2.img");
@@ -275,7 +377,10 @@ fn extract_bzimage_elf(source: &Path, output: &Path) -> Result<()> {
         }
     }
 
-    bail!("no gzip-compressed ELF payload found in {}", source.display())
+    bail!(
+        "no gzip-compressed ELF payload found in {}",
+        source.display()
+    )
 }
 
 fn render_token(

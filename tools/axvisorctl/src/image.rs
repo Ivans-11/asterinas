@@ -110,6 +110,65 @@ impl ImageStore {
         Ok(extract_dir)
     }
 
+    /// Download a single payload artifact and verify its content hash.
+    ///
+    /// Unlike an image entry, this does not unpack an archive. The file is
+    /// cached under `downloads/` and can therefore be referenced by control
+    /// cases without embedding a special-purpose downloader in the runner.
+    pub fn ensure_download(&self, name: &str, url: &str, sha256: &str) -> Result<PathBuf> {
+        let relative = Path::new(name);
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            bail!("invalid payload download name `{name}`");
+        }
+        let path = self.root.join("downloads").join(relative);
+        if path.is_file() && image_verify_sha256(&path, sha256)? {
+            return Ok(path);
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        let part = path.with_extension(format!(
+            "{}.part",
+            path.extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("file")
+        ));
+        if part.exists() {
+            fs::remove_file(&part)
+                .with_context(|| format!("failed to remove {}", part.display()))?;
+        }
+        let mut response = self
+            .client
+            .get(url)
+            .send()
+            .with_context(|| format!("failed to download {url}"))?
+            .error_for_status()
+            .with_context(|| format!("failed to download {url}"))?;
+        let mut file = fs::File::create(&part)
+            .with_context(|| format!("failed to create {}", part.display()))?;
+        io::copy(&mut response, &mut file)
+            .with_context(|| format!("failed to write {}", part.display()))?;
+        file.flush()
+            .with_context(|| format!("failed to flush {}", part.display()))?;
+        if !image_verify_sha256(&part, sha256)? {
+            let _ = fs::remove_file(&part);
+            bail!("downloaded payload checksum mismatch for {url}");
+        }
+        fs::rename(&part, &path).with_context(|| {
+            format!(
+                "failed to move downloaded payload {} to {}",
+                part.display(),
+                path.display()
+            )
+        })?;
+        Ok(path)
+    }
+
     fn ensure_registry(&self) -> Result<ImageRegistry> {
         let registry_path = self.root.join(REGISTRY_FILENAME);
         let should_refresh = match read_last_sync_time(&self.root) {

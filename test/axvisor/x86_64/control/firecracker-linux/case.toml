@@ -1,7 +1,8 @@
 arch = "x86_64"
 case = "firecracker-linux"
 image = "qemu_x86_64_linux"
-payload_files = ["firecracker-vmlinux", "initramfs.cpio.gz", "rootfs.img"]
+payload_files = ["initramfs.cpio.gz", "rootfs.img"]
+payload_downloads = ["firecracker-vmlinux"]
 test_files = ["firecracker"]
 timeout_secs = 600
 success_regex = ["(?m)^firecracker guest test pass!\\s*$"]
