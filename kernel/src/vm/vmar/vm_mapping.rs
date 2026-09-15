@@ -437,7 +437,17 @@ impl VmMapping {
                         TlbFlushOp::for_range(va).perform_on_current();
                         return Ok(());
                     }
-                    assert!(is_write);
+                    // A read fault may race with a mapping whose current
+                    // permissions do not satisfy the requested read access.
+                    // This is a normal access error (and can occur during a
+                    // non-faulting speculative page probe); never panic in
+                    // the host kernel for it.
+                    if !is_write {
+                        return_errno_with_message!(
+                            Errno::EACCES,
+                            "read access is not permitted for the mapped page"
+                        );
+                    }
                     // Perform COW if it is a write access to a shared mapping.
 
                     // Skip if the page fault is already handled.
