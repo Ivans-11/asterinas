@@ -51,10 +51,10 @@ pub fn for_each_pending_external_interrupt<F: FnMut(usize)>(mut handler: F) {
     let _guard = crate::irq::disable_local();
     let hart_id = crate::arch::boot::smp::get_current_hart_id();
 
-    while let Some(hw_irq_line) = IRQ_CHIP.get().unwrap().claim_interrupt(hart_id) {
-        let InterruptSource::External(source) = hw_irq_line.source else {
-            continue;
-        };
+    // Do not require a software IRQ mapping here.  Devices may be
+    // intentionally omitted from the host DT while their raw PLIC source is
+    // still consumed by a higher-level interrupt router.
+    while let Some(source) = IRQ_CHIP.get().unwrap().claim_interrupt_source(hart_id) {
         handler(source.interrupt() as usize);
     }
 }

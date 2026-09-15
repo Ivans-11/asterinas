@@ -127,6 +127,23 @@ impl IrqChip {
             })
     }
 
+    /// Claims a pending external source without requiring a software IRQ
+    /// mapping.  A device may be intentionally absent from the host device
+    /// tree while its raw PLIC source is still consumed by another layer.
+    pub(in crate::arch) fn claim_interrupt_source(
+        &self,
+        hart: u32,
+    ) -> Option<InterruptSourceOnChip> {
+        self.plics
+            .lock()
+            .iter()
+            .enumerate()
+            .find_map(|(index, plic)| {
+                let interrupt = plic.claim_interrupt(hart);
+                (interrupt != 0).then_some(InterruptSourceOnChip { index, interrupt })
+            })
+    }
+
     /// Acknowledges the completion of an interrupt.
     pub(super) fn complete_interrupt(
         &self,
