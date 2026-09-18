@@ -8,6 +8,7 @@ edition.workspace = true
 [dependencies]
 align_ext.workspace = true
 aster-axvisor-host = { workspace = true, optional = true }
+aster-axvisor-conformance = { workspace = true, optional = true }
 aster-bigtcp.workspace = true
 aster-block.workspace = true
 aster-cmdline.workspace = true
@@ -91,6 +92,7 @@ axvisor = [
 vmx = ["axvisor", "aster-axvisor-host/vmx"]
 svm = ["axvisor", "aster-axvisor-host/svm"]
 sstc = ["axvisor", "aster-axvisor-host/sstc"]
+axvisor-conformance = ["axvisor", "dep:aster-axvisor-conformance"]
 coverage = ["ostd/coverage"]
 cvm_guest = ["dep:tdx-guest", "ostd/cvm_guest", "aster-virtio/cvm_guest"]
 # By default we use the Sv48 address translation mode.

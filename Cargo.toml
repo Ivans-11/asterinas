@@ -28,6 +28,7 @@ members = [
     "ostd/libs/padding-struct",
     "kernel",
     "kernel/comps/block",
+    "kernel/comps/axvisor-conformance",
     "kernel/comps/axvisor-host",
     "kernel/comps/cmdline",
     "kernel/comps/console",
@@ -150,6 +151,7 @@ ostd-test = { version = "0.18.0", path = "ostd/libs/ostd-test" }
 
 # Crates under kernel/comps
 aster-block = { path = "kernel/comps/block" }
+aster-axvisor-conformance = { path = "kernel/comps/axvisor-conformance" }
 aster-axvisor-host = { path = "kernel/comps/axvisor-host" }
 aster-cmdline = { path = "kernel/comps/cmdline" }
 aster-console = { path = "kernel/comps/console" }

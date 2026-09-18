@@ -66,6 +66,7 @@ pub(crate) struct TestArgs {
 pub(crate) enum AxvisorMode {
     Static,
     Control,
+    Conformance,
     Off,
 }
 
@@ -74,6 +75,7 @@ impl AxvisorMode {
         match self {
             Self::Static => "static",
             Self::Control => "control",
+            Self::Conformance => "conformance",
             Self::Off => "off",
         }
     }
@@ -81,7 +83,7 @@ impl AxvisorMode {
     pub(crate) fn extra_kcmd_args(self) -> &'static [&'static str] {
         match self {
             Self::Control => &["ostd.log_level=warn", "console=ttyS0"],
-            Self::Off => &["console=ttyS0"],
+            Self::Conformance | Self::Off => &["console=ttyS0"],
             Self::Static => &[],
         }
     }
@@ -379,6 +381,9 @@ fn test_command(workspace: &Workspace, args: TestArgs) -> Result<()> {
         if args.mode == AxvisorMode::Off {
             return test_off_mode(workspace, args);
         }
+        if args.mode == AxvisorMode::Conformance {
+            return test_conformance_mode(workspace, args);
+        }
         return control::test(workspace, args);
     }
 
@@ -477,6 +482,81 @@ fn test_off_mode(workspace: &Workspace, args: TestArgs) -> Result<()> {
         args.mode,
     )?;
     let harness = build_off_mode_harness(workspace, arch);
+
+    clear_qemu_logs(workspace)?;
+    run_test_process(&mut invocation, harness)?;
+    archive_qemu_logs(
+        workspace,
+        format!("{}-{}", arch.as_str(), args.mode.as_str()),
+    )?;
+    Ok(())
+}
+
+fn test_conformance_mode(workspace: &Workspace, args: TestArgs) -> Result<()> {
+    if args.case.is_some() {
+        bail!("--case is not supported for conformance tests");
+    }
+
+    let arch = args.arch.unwrap_or_default();
+    let initramfs = initramfs::prepare_initramfs(&workspace.root, arch, &[], false)?;
+    let mut host_launch = case::resolve_host(&workspace.root, arch)?
+        .map(|host| stage_host_launch(arch, host))
+        .transpose()?
+        .unwrap_or_else(|| HostLaunchConfig {
+            scheme: arch.default_scheme().to_string(),
+            features: vec!["axvisor".to_string()],
+            rendered_qemu_args: Vec::new(),
+        });
+    if !host_launch
+        .features
+        .iter()
+        .any(|feature| feature == "axvisor-conformance")
+    {
+        host_launch.features.push("axvisor-conformance".to_string());
+    }
+
+    let mut build = build_osdk_command(
+        workspace,
+        arch,
+        initramfs.clone(),
+        Some(&host_launch),
+        None,
+        OsdkMode::Build,
+        args.mode,
+    )?;
+    println!("[axvisorctl] building host-contract conformance target...");
+    let status = build
+        .status()
+        .context("failed to launch cargo osdk build for conformance test")?;
+    if !status.success() {
+        bail!("cargo osdk build failed with status {status}");
+    }
+
+    let mut invocation = build_osdk_command(
+        workspace,
+        arch,
+        initramfs,
+        Some(&host_launch),
+        None,
+        OsdkMode::Run,
+        args.mode,
+    )?;
+    let qemu_log_prefix = format!("{}-{}", arch.as_str(), args.mode.as_str());
+    let harness = TestHarness {
+        timeout: Duration::from_secs(120),
+        success: vec![Regex::new(r"CONFORMANCE summary=PASS complete=true").unwrap()],
+        failure: vec![
+            Regex::new(r"CONFORMANCE .*status=FAIL").unwrap(),
+            Regex::new(r"CONFORMANCE summary=FAIL").unwrap(),
+        ],
+        shell_prompt: None,
+        shell_init_cmd: None,
+        interactions: Vec::new(),
+        log_path: workspace
+            .logs_dir
+            .join(format!("{qemu_log_prefix}.run.log")),
+        qemu_log_prefix,
+    };
 
     clear_qemu_logs(workspace)?;
     run_test_process(&mut invocation, harness)?;

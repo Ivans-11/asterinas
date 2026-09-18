@@ -60,8 +60,12 @@ fn run_axvisor_host() {
             aster_axvisor_host::init_control_mode()
                 .expect("Failed to initialize Axvisor control mode");
         }
+        #[cfg(feature = "axvisor-conformance")]
+        "conformance" => aster_axvisor_conformance::run(),
         "static" => aster_axvisor_host::run_static_mode(),
-        mode => panic!("unsupported axvisor.mode: {mode}; expected off, control, or static"),
+        mode => panic!(
+            "unsupported axvisor.mode: {mode}; expected off, control, static, or conformance"
+        ),
     }
 }
 
