@@ -33,7 +33,7 @@ dependencies = [
 [[package]]
 name = "aarch64_sysreg"
 version = "0.3.7"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 
 [[package]]
 name = "acpi"
@@ -118,7 +118,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 [[package]]
 name = "arm_vcpu"
 version = "0.5.9"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "aarch64-cpu 11.2.0",
  "ax-errno",
@@ -135,7 +135,7 @@ dependencies = [
 [[package]]
 name = "arm_vgic"
 version = "0.4.10"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "aarch64-cpu 11.2.0",
  "aarch64_sysreg",
@@ -571,7 +571,7 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 [[package]]
 name = "ax-cpumask"
 version = "0.3.5"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "bitmaps",
 ]
@@ -579,7 +579,7 @@ dependencies = [
 [[package]]
 name = "ax-crate-interface"
 version = "0.5.7"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -589,7 +589,7 @@ dependencies = [
 [[package]]
 name = "ax-errno"
 version = "0.6.0"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "log",
  "strum",
@@ -598,7 +598,7 @@ dependencies = [
 [[package]]
 name = "ax-kernel-guard"
 version = "0.3.10"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-crate-interface",
  "cfg-if",
@@ -607,7 +607,7 @@ dependencies = [
 [[package]]
 name = "ax-kspin"
 version = "0.3.9"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-kernel-guard",
  "cfg-if",
@@ -616,17 +616,17 @@ dependencies = [
 [[package]]
 name = "ax-lazyinit"
 version = "0.4.7"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 
 [[package]]
 name = "ax-memory-addr"
 version = "0.6.8"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 
 [[package]]
 name = "ax-memory-set"
 version = "0.6.9"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-memory-addr",
 ]
@@ -634,7 +634,7 @@ dependencies = [
 [[package]]
 name = "ax-page-table-entry"
 version = "0.8.9"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "aarch64-cpu 11.2.0",
  "ax-memory-addr",
@@ -645,7 +645,7 @@ dependencies = [
 [[package]]
 name = "ax-page-table-multiarch"
 version = "0.8.10"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "arrayvec",
  "ax-memory-addr",
@@ -658,7 +658,7 @@ dependencies = [
 [[package]]
 name = "ax-percpu"
 version = "0.4.11"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-percpu-macros",
  "cfg-if",
@@ -669,7 +669,7 @@ dependencies = [
 [[package]]
 name = "ax-percpu-macros"
 version = "0.4.10"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "cfg-if",
  "proc-macro2",
@@ -680,12 +680,12 @@ dependencies = [
 [[package]]
 name = "ax-timer-list"
 version = "0.3.5"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 
 [[package]]
 name = "axaddrspace"
 version = "0.5.11"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-errno",
  "ax-lazyinit",
@@ -704,7 +704,7 @@ dependencies = [
 [[package]]
 name = "axdevice"
 version = "0.4.10"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "arm_vgic",
  "ax-errno",
@@ -723,7 +723,7 @@ dependencies = [
 [[package]]
 name = "axdevice_base"
 version = "0.4.11"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-errno",
  "axaddrspace",
@@ -734,7 +734,7 @@ dependencies = [
 [[package]]
 name = "axhvc"
 version = "0.4.8"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-errno",
 ]
@@ -742,7 +742,7 @@ dependencies = [
 [[package]]
 name = "axvcpu"
 version = "0.5.9"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-errno",
  "ax-kspin",
@@ -755,7 +755,7 @@ dependencies = [
 [[package]]
 name = "axvisor_api"
 version = "0.5.11"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-cpumask",
  "ax-crate-interface",
@@ -768,7 +768,7 @@ dependencies = [
 [[package]]
 name = "axvisor_api_proc"
 version = "0.5.7"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -779,7 +779,7 @@ dependencies = [
 [[package]]
 name = "axvisor_conformance"
 version = "0.5.11"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "axvisor_api",
  "log",
@@ -788,7 +788,7 @@ dependencies = [
 [[package]]
 name = "axvisor_core"
 version = "0.5.11"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "aarch64-cpu-ext",
  "anyhow",
@@ -826,7 +826,7 @@ dependencies = [
 [[package]]
 name = "axvm"
 version = "0.5.9"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "arm_vcpu",
  "arm_vgic",
@@ -856,7 +856,7 @@ dependencies = [
 [[package]]
 name = "axvmconfig"
 version = "0.5.2"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-errno",
  "enumerable",
@@ -1539,7 +1539,7 @@ version = "0.1.0"
 [[package]]
 name = "kvm-uapi"
 version = "0.1.0"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "raw-cpuid 11.6.0",
 ]
@@ -1677,7 +1677,7 @@ dependencies = [
 [[package]]
 name = "loongarch_vcpu"
 version = "0.5.3"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-errno",
  "ax-kspin",
@@ -2215,7 +2215,7 @@ checksum = "68b59d645e392e041ad18f5e529ed13242d8405c66bb192f59703ea2137017d0"
 [[package]]
 name = "riscv-h"
 version = "0.4.7"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "bare-metal",
  "bit_field",
@@ -2250,7 +2250,7 @@ checksum = "d3f2ad9f15a07f4a0e1677124f9120ce7e83ab7e1ca7186af0ca9da529b62e80"
 [[package]]
 name = "riscv_vcpu"
 version = "0.5.9"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-crate-interface",
  "ax-errno",
@@ -2277,7 +2277,7 @@ dependencies = [
 [[package]]
 name = "riscv_vplic"
 version = "0.4.12"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-errno",
  "ax-kspin",
@@ -2862,7 +2862,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vm-interrupt"
 version = "0.1.0"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-errno",
 ]
@@ -3058,7 +3058,7 @@ dependencies = [
 [[package]]
 name = "x86_vcpu"
 version = "0.5.9"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-crate-interface",
  "ax-errno",
@@ -3085,7 +3085,7 @@ dependencies = [
 [[package]]
 name = "x86_vlapic"
 version = "0.4.10"
-source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#9fb0c4e7517a39b75a26df045c56007c2557c162"
+source = "git+https://github.com/Ivans-11/tgoskits?branch=axvisor-core#1cdc81a778ca614c0ceacd97bc8fc05dd2cc687d"
 dependencies = [
  "ax-errno",
  "ax-kspin",

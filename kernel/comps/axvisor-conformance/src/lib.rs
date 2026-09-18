@@ -38,7 +38,7 @@ impl axvisor_conformance::Stimulus for AsterinasStimulus {
         Some(FIRED.load(Ordering::Acquire))
     }
 
-    fn verify_physical_irq(&self, test_vector: usize) -> Option<bool> {
+    fn verify_irq_ingress(&self, test_vector: usize) -> Option<bool> {
         static RESULT: AtomicUsize = AtomicUsize::new(0);
         static TEST_VECTOR: AtomicUsize = AtomicUsize::new(0);
         const TIMEOUT_NANOS: u64 = 100_000_000;
