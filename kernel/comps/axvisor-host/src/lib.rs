@@ -205,7 +205,7 @@ impl TaskCompletion {
 }
 
 struct TaskEntry {
-    task: Arc<Task>,
+    _task: Arc<Task>,
     completion: Arc<TaskCompletion>,
 }
 
@@ -510,7 +510,7 @@ impl task::TaskIf for TaskIfImpl {
 
         TASKS
             .lock()
-            .insert(handle.as_raw(), Arc::new(TaskEntry { task, completion }));
+            .insert(handle.as_raw(), Arc::new(TaskEntry { _task: task, completion }));
         registered.store(true, Ordering::Release);
         handle
     }
@@ -523,12 +523,6 @@ impl task::TaskIf for TaskIfImpl {
 
     fn current_task() -> Option<task::TaskHandle> {
         let current = Task::current()?.cloned();
-        if let Some(handle) = TASKS.lock().iter().find_map(|(&handle, entry)| {
-            Arc::ptr_eq(&current, &entry.task).then_some(task::TaskHandle::from_raw(handle))
-        }) {
-            return Some(handle);
-        }
-
         Some(task::TaskHandle::from_raw(Arc::as_ptr(&current) as usize))
     }
 
