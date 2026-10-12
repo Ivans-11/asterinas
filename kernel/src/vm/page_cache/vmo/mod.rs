@@ -31,7 +31,7 @@ use xarray::{Cursor, LockedXArray, XArray};
 
 use crate::{
     prelude::*,
-    vm::page_cache::{CachePage, CachePageExt, PageCacheBackend},
+    vm::page_cache::{CachePage, CachePageExt, LockedCachePage, PageCacheBackend},
 };
 
 mod options;
@@ -639,6 +639,12 @@ impl Vmo {
                 };
             match self.try_operate_on_range_internal(&current_range, &mut operate, commit_mode) {
                 Ok(()) => break 'retry,
+                Err(VmoCommitError::NeedIo { index })
+                    if self.has_backend() && commit_mode == CommitMode::Read =>
+                {
+                    self.as_backed_vmo().unwrap().read_pages(index, end_idx)?;
+                    current_range.start = index * PAGE_SIZE;
+                }
                 Err(err) => {
                     let (idx, page) = self.handle_commit_error(err, commit_mode)?;
                     pages.push((idx, page));
@@ -690,6 +696,41 @@ pub struct BackedVmo<'a> {
 }
 
 impl<'a> BackedVmo<'a> {
+    /// Populates missing pages in a range with concurrent backend reads.
+    fn read_pages(&self, start_idx: usize, end_idx: usize) -> Result<()> {
+        let mut pending: Vec<(usize, LockedCachePage)> = Vec::with_capacity(end_idx - start_idx);
+        {
+            let mut pages = self.vmo.pages.lock();
+            let mut cursor = pages.cursor_mut(start_idx as u64);
+            for idx in start_idx..end_idx {
+                if cursor.load().is_none() {
+                    let page = CachePage::alloc_uninit()?;
+                    let locked_page = page.clone().try_lock().unwrap();
+                    cursor.store(page);
+                    pending.push((idx, locked_page));
+                }
+                cursor.next();
+            }
+        }
+
+        let mut io_batch = IoBatch::with_capacity(pending.len());
+        let mut first_error = None;
+        for (idx, locked_page) in pending {
+            if let Err(err) = self
+                .backend
+                .read_page_async(idx, locked_page, &mut io_batch)
+            {
+                first_error.get_or_insert(err);
+            }
+        }
+        let wait_result = io_batch.wait_all().map_err(Error::from);
+        if let Some(err) = first_error {
+            let _ = wait_result;
+            return Err(err);
+        }
+        wait_result
+    }
+
     /// Writes back dirty pages in the specified byte range to the backend storage.
     pub(super) fn flush_dirty_pages(&self, range: &Range<usize>) -> Result<()> {
         let locked_pages = self.vmo.pages.lock();
