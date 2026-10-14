@@ -117,9 +117,13 @@ impl TryFrom<i32> for VtIndex {
     }
 }
 
-pub(super) fn init_in_first_process() -> Result<()> {
-    keyboard::init_in_first_process();
-    manager::init_in_first_process()?;
-    device::init_in_first_process();
+// Console output must be available even when no userspace process is started.
+pub(super) fn init_in_first_kthread() -> Result<()> {
+    manager::init_in_first_kthread()?;
+    device::init_in_first_kthread();
     Ok(())
+}
+
+pub(super) fn init_in_first_process() {
+    keyboard::init_in_first_process();
 }

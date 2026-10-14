@@ -72,6 +72,7 @@ fn parse_framebuffer_info(mb1_info: &MultibootLegacyInfo) -> Option<BootloaderFr
         width: mb1_info.framebuffer_table.width as usize,
         height: mb1_info.framebuffer_table.height as usize,
         bpp: mb1_info.framebuffer_table.bpp as usize,
+        pitch: mb1_info.framebuffer_table.pitch as usize,
     })
 }
 

@@ -87,12 +87,15 @@ pub(crate) fn init() {
     };
 
     let framebuffer = {
-        // FIXME: There can be more than `width` pixels per framebuffer line due to alignment
-        // purposes. We need to collect this information during the boot phase.
-        let line_size = framebuffer_arg
+        let minimum_line_size = framebuffer_arg
             .width
             .checked_mul(pixel_format.nbytes())
             .unwrap();
+        let line_size = framebuffer_arg.pitch;
+        if line_size < minimum_line_size {
+            ostd::error!("Framebuffer scanline is shorter than the visible width");
+            return;
+        }
         let fb_size = framebuffer_arg.height.checked_mul(line_size).unwrap();
 
         let fb_base = framebuffer_arg.address;

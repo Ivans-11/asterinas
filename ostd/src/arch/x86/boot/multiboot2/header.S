@@ -38,6 +38,16 @@ info_request:
     .long  15           // ACPI (new) request
 info_request_end:
 
+    // Request a graphical framebuffer when one is available.
+    .balign 8
+framebuffer_tag:
+    .short 5
+    .short 1            // Optional: serial-only platforms remain supported.
+    .long 20
+    .long 0            // Let the bootloader choose the resolution.
+    .long 0
+    .long 32
+
     // Tag: header end
     .align 8
     .short 0            // type: tags end

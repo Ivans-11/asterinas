@@ -30,11 +30,15 @@ mod vt;
 pub(super) use driver::TtyDriver;
 pub(super) use flags::TtyFlags;
 
+pub(super) fn init_in_first_kthread() -> Result<()> {
+    vt::init_in_first_kthread()
+}
+
 pub(super) fn init_in_first_process() -> Result<()> {
     hvc::init_in_first_process()?;
     serial::init_in_first_process()?;
     device::init_in_first_process()?;
-    vt::init_in_first_process()?;
+    vt::init_in_first_process();
 
     Ok(())
 }

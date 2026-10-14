@@ -36,6 +36,13 @@ pub(crate) fn init(io_mem_builder: &IoMemAllocatorBuilder) -> Result<(), IommuEr
     registers::init(io_mem_builder)?;
     invalidate::init();
     dma_remapping::init();
-    interrupt_remapping::init();
+    // Fall back to ordinary MSI-X when DMA remapping cannot be initialized.
+    // Some platforms lose device interrupts when only interrupt remapping is
+    // enabled with the current IOMMU implementation.
+    if dma_remapping::has_dma_remapping() {
+        interrupt_remapping::init();
+    } else {
+        crate::warn!("DMA remapping unavailable, using ordinary MSI-X interrupts");
+    }
     Ok(())
 }

@@ -28,7 +28,7 @@ impl AnyConsoleDevice for DefaultVtConsoleDevice {
     fn register_callback(&self, _callback: &'static ConsoleCallback) {}
 }
 
-pub(super) fn init_in_first_process() {
+pub(super) fn init_in_first_kthread() {
     aster_console::register_device(
         DEFAULT_VT_CONSOLE_NAME.into(),
         Arc::new(DefaultVtConsoleDevice),

@@ -473,9 +473,19 @@ impl VtManagerGuard<'_> {
 
 pub(super) static VT_MANAGER: Once<VtManager> = Once::new();
 
-pub(super) fn init_in_first_process() -> Result<()> {
+pub(super) fn init_in_first_kthread() -> Result<()> {
     let vtm = VtManager::new()?;
     VT_MANAGER.call_once(|| vtm);
+    if aster_framebuffer::FRAMEBUFFER.get().is_some()
+        && ostd::boot::boot_info()
+            .kernel_cmdline
+            .split_whitespace()
+            .any(|arg| arg == "console=tty0")
+    {
+        ostd::console::screen::register(|bytes| {
+            default_vt().driver().vt_console().send(bytes);
+        });
+    }
     Ok(())
 }
 

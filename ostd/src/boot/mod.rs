@@ -73,6 +73,8 @@ pub struct BootloaderFramebufferArg {
     pub height: usize,
     /// Bits per pixel of the buffer.
     pub bpp: usize,
+    /// Number of bytes between consecutive scanlines, including padding.
+    pub pitch: usize,
 }
 
 /*************************** Boot-time information ***************************/

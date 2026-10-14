@@ -6,10 +6,12 @@ use core::fmt::{Arguments, Write};
 
 use crate::arch::serial::SERIAL_PORT;
 
+pub mod screen;
 pub mod uart_ns16650a;
 
 /// Prints formatted arguments to the console.
 pub fn early_print(args: Arguments) {
+    screen::print(args);
     let Some(serial) = SERIAL_PORT.get() else {
         return;
     };

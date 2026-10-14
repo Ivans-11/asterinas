@@ -28,6 +28,7 @@ pub fn _print(args: fmt::Arguments) {
             if self.0.is_empty() {
                 ostd::early_print!("{}", s);
             } else {
+                ostd::console::screen::buffer(format_args!("{}", s));
                 for console in self.0.values() {
                     console.send(s.as_bytes());
                 }

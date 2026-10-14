@@ -69,6 +69,7 @@ fn parse_framebuffer_info(mb2_info: &BootInformation) -> Option<BootloaderFrameb
         width: fb_tag.width() as usize,
         height: fb_tag.height() as usize,
         bpp: fb_tag.bpp() as usize,
+        pitch: fb_tag.pitch() as usize,
     })
 }
 

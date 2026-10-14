@@ -109,6 +109,7 @@ fn parse_framebuffer_info(boot_params: &BootParams) -> Option<BootloaderFramebuf
         width: screen_info.lfb_width as usize,
         height: screen_info.lfb_height as usize,
         bpp: screen_info.lfb_depth as usize,
+        pitch: screen_info.lfb_linelength as usize,
     })
 }
 
